@@ -1,0 +1,4 @@
+self-hosted-runner:
+  labels:
+    - dvd2hevc-player
+    - hevc-release

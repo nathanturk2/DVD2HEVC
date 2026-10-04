@@ -3,13 +3,18 @@ on: [push, pull_request, workflow_dispatch]
 jobs:
   inspector:
     runs-on: windows-latest
-    env:
-      DVD2HEVC_STATE_DIR: ${{ runner.temp }}/dvd2hevc-native
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
+      - name: Isolate application state
+        shell: python
+        run: |
+          import os
+          from pathlib import Path
+          with open(os.environ["GITHUB_ENV"], "a", encoding="utf-8") as environment:
+              environment.write("DVD2HEVC_STATE_DIR=" + str(Path(os.environ["RUNNER_TEMP"]) / "dvd2hevc-native") + "\n")
       - run: python -m pip install . meson ninja
       - run: python dvd2hevc.py build-inspector
       - uses: actions/upload-artifact@v4
