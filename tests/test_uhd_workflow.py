@@ -13,6 +13,15 @@ from dvd2hevc_app.job_progress import _uhd_output_progress
 from dvd2hevc_app.pipeline import PipelineError
 
 class UhdWorkflowTests(unittest.TestCase):
+    def test_historical_timestamp_offsets_keep_recovery_and_duration_consistent(self):
+        from dvd2hevc_app.timestamps import parse_timestamp
+        from dvd2hevc_app.compat_registry import _duration_seconds
+        compact='2026-10-05T12:00:00+1300'
+        self.assertEqual(parse_timestamp(compact),parse_timestamp('2026-10-05T12:00:00+13:00'))
+        self.assertEqual(parse_timestamp(compact),parse_timestamp('2026-10-04T23:00:00Z'))
+        self.assertEqual(_duration_seconds(dict(started_at=compact,ended_at='2026-10-05T12:01:30+1300')),90)
+        self.assertIsNone(parse_timestamp('invalid'))
+
     def test_default_and_legacy_contracts_and_queue_options(self):
         parser=build_parser()
         for command in ('auto','start','queue','watch-folder'):

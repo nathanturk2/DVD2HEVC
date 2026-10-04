@@ -13,7 +13,7 @@ import shutil
 import subprocess
 import sys
 import time
-from datetime import datetime
+from .timestamps import parse_timestamp
 from pathlib import Path
 from typing import Any, Callable
 from urllib.parse import quote
@@ -176,13 +176,8 @@ def current_boot_session_id() -> str | None:
 
 
 def _timestamp_epoch(value: Any) -> float | None:
-    text = str(value or "").strip()
-    if not text:
-        return None
-    try:
-        return datetime.fromisoformat(text).timestamp()
-    except ValueError:
-        return None
+    parsed = parse_timestamp(value)
+    return parsed.timestamp() if parsed is not None else None
 
 
 def safe_slug(value: str, *, fallback: str = "dvd") -> str:
@@ -1306,12 +1301,7 @@ def output_storage_failure_evidence(job: dict[str, Any]) -> list[str]:
     inline = str(job.get("error") or "")
     if any(marker in inline.casefold() for marker in DISK_FULL_LOG_MARKERS):
         matches.append("job.error")
-    started_at: float | None = None
-    if job.get("started_at"):
-        try:
-            started_at = datetime.fromisoformat(str(job["started_at"])).timestamp()
-        except (TypeError, ValueError):
-            pass
+    started_at = _timestamp_epoch(job.get("started_at"))
     for path in evidence_paths:
         if not str(path) or not path.is_file():
             continue

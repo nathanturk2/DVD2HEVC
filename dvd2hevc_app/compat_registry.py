@@ -6,7 +6,7 @@ import argparse
 import hashlib
 import json
 import time
-from datetime import datetime
+from .timestamps import parse_timestamp
 from pathlib import Path
 from typing import Any, Iterable
 
@@ -91,12 +91,11 @@ def classify_outcome(job: dict[str, Any], pipeline: dict[str, Any] | None = None
 
 
 def _duration_seconds(job: dict[str, Any]) -> float | None:
-    try:
-        start = datetime.fromisoformat(str(job["started_at"]))
-        end = datetime.fromisoformat(str(job["ended_at"]))
-    except (KeyError, TypeError, ValueError):
+    start = parse_timestamp(job.get('started_at'))
+    end = parse_timestamp(job.get('ended_at'))
+    if start is None or end is None:
         return None
-    return round(max(0.0, (end - start).total_seconds()), 3)
+    return round(max(0.0, end.timestamp() - start.timestamp()), 3)
 
 
 def _report_evidence(work_root: Path) -> dict[str, Any]:

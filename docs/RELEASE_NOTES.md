@@ -17,10 +17,12 @@ Cached authoring is checked against the requested source, including when the
 command is launched from another authored disc's folder. Still repetition cannot
 hide missing original pictures, new destination directories are created, and
 source changes during authoring or output verification block publication.
+Historical compact timezone offsets are parsed on Python 3.10 too, so old
+disk-full reports cannot be treated as evidence from a current attempt.
 
 ## Local validation, 5 October 2026
 
-- 274 Python tests run: 273 pass, one optional original-disc test skipped.
+- 275 Python tests run: 274 pass, one optional original-disc test skipped.
 - The generated 16-second PAL Colour Lab DVD passed the complete MPEG-2 to
   HEVC to BD-J/UDF/stock-VLC workflow with software x265. Source 12,144,640
   bytes; final ISO 5,568,512 bytes; measured conversion 26.14 seconds.

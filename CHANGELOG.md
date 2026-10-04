@@ -9,6 +9,7 @@
 - Reject unrelated completed-disc folders during cache reuse, recheck source bytes before publication, and create new output directories.
 - Require still-picture padding to retain the complete original compressed picture sequence.
 - Validate Actions workflows, resolve Windows short temporary paths in release checks, and compare shared modules across Python minor versions.
+- Parse historical compact timezone offsets on Python 3.10 so stale disk-full logs cannot trigger current-output cleanup.
 - Expand the author/navigation corpus to 13 commercial DVD backups, separately from 117 legacy converted examples.
 - Package Java sources, stock-player harness and the Hadris Windows author with complete fork source/notices.
 
