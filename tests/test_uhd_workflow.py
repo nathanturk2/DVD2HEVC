@@ -50,7 +50,7 @@ class UhdWorkflowTests(unittest.TestCase):
 
     def fixtures(self):
         temporary=tempfile.TemporaryDirectory();self.addCleanup(temporary.cleanup)
-        root=Path(temporary.name);source=root/'source.iso';source.write_bytes(b'source')
+        root=Path(temporary.name).resolve();source=root/'source.iso';source.write_bytes(b'source')
         binary=root/'tool.exe';binary.write_bytes(b'tool')
         tools=dict(stock_vlc=str(root),bdj_api=str(binary),java_home=str(root),
                    tsmuxer=str(binary),udf_tool=str(binary))
