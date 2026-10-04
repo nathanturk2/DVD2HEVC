@@ -1,0 +1,43 @@
+name: Disc compatibility report
+description: Report a conversion, navigation, or playback problem without sharing media.
+title: "[Disc] "
+labels: ["compatibility"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Do not attach ISO/VOB media, keys, or copyrighted disc assets. Run `python dvd2hevc.py diagnose JOB_ID` and attach the resulting zip.
+  - type: input
+    id: version
+    attributes:
+      label: DVD2HEVC version
+      placeholder: 0.1.0a2
+    validations:
+      required: true
+  - type: input
+    id: disc
+    attributes:
+      label: Disc title and region/edition
+    validations:
+      required: true
+  - type: textarea
+    id: route
+    attributes:
+      label: Exact navigation or conversion sequence
+      description: For playback issues, list every menu/button/title action needed to reproduce it.
+    validations:
+      required: true
+  - type: textarea
+    id: behavior
+    attributes:
+      label: Source behavior and converted behavior
+    validations:
+      required: true
+  - type: input
+    id: diagnostic
+    attributes:
+      label: Diagnostic bundle
+      description: Drag the media-free `dvd2hevc diagnose` zip here.
+    validations:
+      required: true
+

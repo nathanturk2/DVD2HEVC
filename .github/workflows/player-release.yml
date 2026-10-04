@@ -1,0 +1,32 @@
+name: Pinned private-player release build
+on:
+  workflow_dispatch:
+    inputs:
+      source:
+        description: Clean pinned VLC checkout with prepared Windows contrib/build tree
+        required: true
+        type: string
+      base_player:
+        description: Unmodified VLC 3.0.23 Windows x64 runtime directory
+        required: true
+        type: string
+jobs:
+  player:
+    runs-on: [self-hosted, Windows, X64, dvd2hevc-player]
+    timeout-minutes: 120
+    env:
+      VLC_SOURCE: ${{ inputs.source }}
+      VLC_BASE: ${{ inputs.base_player }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build patched DVDNAV into a new private runtime
+        shell: pwsh
+        run: |
+          $destination = Join-Path $env:RUNNER_TEMP ("dvd2hevc-player-" + [guid]::NewGuid())
+          powershell -NoProfile -ExecutionPolicy Bypass -File tools/prepare-vlc-dvdhevc.ps1 -SourcePath $env:VLC_SOURCE -BaseVlcRoot $env:VLC_BASE -Destination $destination
+          if ($LASTEXITCODE -ne 0) { throw "Pinned player build failed" }
+          Copy-Item -LiteralPath (Join-Path $destination "DVD2HEVC-VLC-BUILD.json") -Destination player-build.json
+      - uses: actions/upload-artifact@v4
+        with:
+          name: player-build-provenance
+          path: player-build.json

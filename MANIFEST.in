@@ -1,0 +1,18 @@
+include README.md LICENSE THIRD_PARTY_NOTICES.md setup.py .gitattributes
+recursive-include assets *
+recursive-include docs *.md *.json *.png *.jpg
+recursive-include dvd2hevc_app/data *
+recursive-include tools *.ps1 *.cs *.py *.pyw
+recursive-include native *.ps1 *.c
+recursive-include patches *.patch
+global-exclude __pycache__ *.pyc *.obj *.log *.iso *.m2ts *.vob
+prune work
+prune reports
+
+include tools/build-release.py tools/check-installed.py tools/check-shared.py
+recursive-include .github *.yml *.yaml
+recursive-include tests *.py
+recursive-include dvd2uhd *.py *.java NOTICE
+recursive-include tools/hadris-udf *
+prune tools/hadris-udf/streaming-src/target
+include SHARED_MODULES.json SOURCE-MANIFEST.json

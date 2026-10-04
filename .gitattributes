@@ -1,0 +1,7 @@
+* text=auto eol=lf
+patches/** -text
+tools/hadris-udf/** -text
+*.exe -text
+*.jpg -text
+*.png -text
+*.ico -text

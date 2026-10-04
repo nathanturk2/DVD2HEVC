@@ -1,0 +1,30 @@
+diff --git a/msvc/include/unistd.h b/msvc/include/unistd.h
+index 3703c73..b05c361 100644
+--- a/msvc/include/unistd.h
++++ b/msvc/include/unistd.h
+@@ -27,6 +27,7 @@
+ #include <malloc.h>
+ #include <errno.h>
+ #include <direct.h>
++#include <io.h>
+ 
+ #include <config.h>
+ 
+@@ -36,6 +37,7 @@
+ #define inline __inline
+ 
+ #define mkdir( A, B )   _mkdir( A )
++#define close                   _close
+ #define lstat                   stat
+ 
+ #ifndef S_ISDIR
+@@ -59,8 +61,7 @@
+ #define strncasecmp _strnicmp
+ #endif
+ 
+-#define snprintf _snprintf
+-#define vsnprintf _vsnprintf
++/* Modern MSVC provides conforming snprintf/vsnprintf declarations. */
+ 
+ // FIXME : I don't remember why this is here
+ #define readlink

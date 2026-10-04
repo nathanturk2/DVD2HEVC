@@ -1,0 +1,14 @@
+DVD2UHD-BD is distributed under GNU GPL version 3.
+
+DvdVm.java adapts libdvdnav src/vm/decoder.c:
+Copyright (C) 2000, 2001 Martin Norbäck, Håkan Hjort
+              2002-2004 the dvdnav project.
+Originally part of the Ogle DVD player; GPL-2.0-or-later, used under GPL v3.
+Upstream: https://code.videolan.org/videolan/libdvdnav
+
+udf_validation.py and the read-only UdfImage implementation in udf_reader.py
+are adapted from the BD2HEVC project (GPL-3.0-only), imported 2026-10-04.
+The complete GPL v3 license is in LICENSE.
+
+External VLC/libbluray, FFmpeg, tsMuxeR, Java and Hadris binaries and API JARs
+are not bundled. See docs/THIRD_PARTY.md in the source distribution for details.

@@ -1,0 +1,13 @@
+{
+  "generated_media": true,
+  "project": "DVD2HEVC",
+  "encoder": "libx265",
+  "duration_seconds": 16,
+  "source_bytes": 12144640,
+  "output_bytes": 5568512,
+  "elapsed_seconds": 26.14,
+  "outcome": "passed",
+  "version": "0.2.0a1",
+  "date": "2026-10-05",
+  "output_format": "uhd-bd"
+}

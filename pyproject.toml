@@ -1,0 +1,49 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "dvd2hevc"
+dynamic = ["version"]
+description = "Full-disc DVD backup conversion to compact HEVC while preserving menus, extras, branching cuts, audio, subtitles, and navigation."
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "GPL-3.0-only" }
+dependencies = ["pycdlib>=1.14", "Pillow>=10"]
+authors = [
+  { name = "DVD2HEVC contributors" }
+]
+keywords = ["dvd", "hevc", "nvenc", "vlc", "libdvdread", "preservation"]
+classifiers = [
+  "Development Status :: 3 - Alpha",
+  "Environment :: Console",
+  "Intended Audience :: End Users/Desktop",
+  "License :: OSI Approved :: GNU General Public License v3 (GPLv3)",
+  "Operating System :: Microsoft :: Windows",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3.10",
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
+  "Topic :: Multimedia :: Video :: Conversion"
+]
+
+[project.scripts]
+dvd2hevc = "dvd2hevc_app.cli:main"
+
+[project.urls]
+Repository = "https://github.com/nathanturk2/DVD2HEVC"
+Issues = "https://github.com/nathanturk2/DVD2HEVC/issues"
+
+[project.gui-scripts]
+dvd2hevc-gui = "dvd2hevc_app.gui:launch_gui"
+
+[tool.setuptools]
+py-modules = ["dvd2hevc"]
+packages = ["dvd2hevc_app", "dvd2uhd"]
+
+[tool.setuptools.dynamic]
+version = {attr = "dvd2hevc_app.__version__"}
+
+[tool.setuptools.package-data]
+dvd2hevc_app = ["data/*", "resources/**/*"]
+dvd2uhd = ["java/org/dvd2uhd/*.java", "NOTICE"]

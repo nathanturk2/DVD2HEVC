@@ -1,0 +1,23 @@
+__pycache__/
+*.py[cod]
+*.obj
+*.egg-info/
+.pytest_cache/
+.venv/
+build/
+dist/
+reports/
+tools/*.exe
+work/
+vlc-dvdhevc/
+vlc-help.txt
+/DVD2HEVC.exe
+*.iso
+*.vob
+*.log
+*.zip
+*.tmp
+
+# Generated release/build artifacts
+build/
+dist/

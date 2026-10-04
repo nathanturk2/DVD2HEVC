@@ -1,0 +1,178 @@
+diff --git a/modules/access/dvdnav.c b/modules/access/dvdnav.c
+index 7bb4738..9df6d92 100644
+--- a/modules/access/dvdnav.c
++++ b/modules/access/dvdnav.c
+@@ -147,6 +147,7 @@ struct demux_sys_t
+ 
+     /* track */
+     ps_track_t  tk[PS_TK_COUNT];
++    ps_psm_t    psm;
+     int         i_mux_rate;
+ 
+     /* event */
+@@ -223,6 +224,7 @@ static int CommonOpen( vlc_object_t *p_this,
+     p_sys->dvdnav = p_dvdnav;
+ 
+     ps_track_init( p_sys->tk );
++    ps_psm_init( &p_sys->psm );
+     p_sys->b_readahead = b_readahead;
+ 
+     /* Configure dvdnav */
+@@ -551,6 +553,7 @@ static void Close( vlc_object_t *p_this )
+             if( tk->es ) es_out_Del( p_demux->out, tk->es );
+         }
+     }
++    ps_psm_destroy( &p_sys->psm );
+ 
+     /* Free the array of titles */
+     for( int i = 0; i < p_sys->i_title; i++ )
+@@ -998,6 +1001,14 @@ static int Demux( demux_t *p_demux )
+             tk->b_configured = false;
+         }
+ 
++        /* A PSM belongs to the VTS domain that announced it.  Keeping an
++         * HEVC map while returning to an unmodified MPEG-2 menu makes ESNew
++         * recreate stream 0xe0 as HEVC, yielding audio with a black picture.
++         * The next domain will either announce a fresh DVD2HEVC map or fall
++         * back to the normal DVD MPEG-2 stream inference. */
++        ps_psm_destroy( &p_sys->psm );
++        ps_psm_init( &p_sys->psm );
++
+         uint32_t i_width, i_height;
+         if( dvdnav_get_video_resolution( p_sys->dvdnav,
+                                          &i_width, &i_height ) )
+@@ -1059,6 +1070,30 @@ static int Demux( demux_t *p_demux )
+         if( dvdnav_current_title_info( p_sys->dvdnav, &i_title,
+                                        &i_part ) == DVDNAV_STATUS_OK )
+         {
++            /* Authored menu transitions commonly jump to a separate still
++             * PGC whose SCR/PTS timeline starts near zero.  The DVD cell is
++             * flagged as an STC discontinuity, but dvdnav's private per-ES
++             * discontinuity flag alone is too late to reset the input clock:
++             * the next NAV pack has already announced the restarted SCR.
++             * MPEG-2 often recovers after dropping a few late pictures; a
++             * one-picture HEVC menu can then remain on the transition frame
++             * forever.  Reset the clock and recreate the HEVC video decoder
++             * for menus (title 0), before the next NAV pack establishes the
++             * new clock.  Recreating the decoder is necessary for hardware
++             * decoding paths that do not reliably discard pictures from the
++             * previous cell on a flush alone.  Title cells retain the existing
++             * seamless-branch behavior. */
++            ps_track_t *video = &p_sys->tk[ps_id_to_tk(0xe0)];
++            if( i_title == 0 &&
++                ps_id_to_type( &p_sys->psm, 0xe0 ) == 0x24 &&
++                video->b_configured && video->es )
++            {
++                msg_Dbg( p_demux, "resetting clock and restarting video for HEVC menu cell" );
++                es_out_Control( p_demux->out, ES_OUT_RESET_PCR );
++                es_out_Control( p_demux->out, ES_OUT_RESTART_ES, video->es );
++                p_sys->b_reset_pcr = false;
++            }
++
+             if( i_title >= 0 && i_title < p_sys->i_title )
+             {
+                 p_demux->info.i_update |= INPUT_UPDATE_TITLE;
+@@ -1084,7 +1119,13 @@ static int Demux( demux_t *p_demux )
+         if( unlikely(!p_pci) )
+             break;
+         const pci_gi_t *p_pci_gi = &p_pci->pci_gi;
+-        if( p_pci_gi->vobu_se_e_ptm != 0 && p_pci_gi->vobu_se_e_ptm < p_pci_gi->vobu_e_ptm )
++        /* These offsets describe MPEG-2 sequence-end codes in the original
++         * DVD video. They no longer delimit the replacement elementary
++         * stream and injecting an HEVC EOS there corrupts motion playback. */
++        if( !( ps_id_to_type( &p_sys->psm, 0xe0 ) == 0x24 &&
++               dvdnav_is_domain_vts( p_sys->dvdnav ) ) &&
++            p_pci_gi->vobu_se_e_ptm != 0 &&
++            p_pci_gi->vobu_se_e_ptm < p_pci_gi->vobu_e_ptm )
+         {
+             const dsi_t *p_dsi = dvdnav_get_current_nav_dsi( p_sys->dvdnav );
+             if( unlikely(!p_dsi) )
+@@ -1118,6 +1159,16 @@ static int Demux( demux_t *p_demux )
+     case DVDNAV_STOP:   /* EOF */
+         msg_Dbg( p_demux, "DVDNAV_STOP" );
+ 
++        /* Some authored menu PGCs end after a single video frame without a
++         * DVDNAV_STILL_FRAME event. Flush HEVC while the ES is still alive so
++         * the decoded menu frame reaches the vout before teardown. */
++        ps_track_t *video = &p_sys->tk[ps_id_to_tk(0xe0)];
++        if( video->b_configured && video->fmt.i_codec == VLC_CODEC_HEVC )
++        {
++            DemuxForceStill( p_demux );
++            msleep( 40*1000 );
++        }
++
+         if( p_sys->b_readahead )
+             dvdnav_free_cache_block( p_sys->dvdnav, packet );
+         return 0;
+@@ -1415,13 +1466,8 @@ static int DemuxBlock( demux_t *p_demux, const uint8_t *p, int len )
+         {
+         case 0x1b9:
+         case 0x1bb:
+-        case 0x1bc:
+ #ifdef DVDNAV_DEBUG
+-            if( p[3] == 0xbc )
+-            {
+-                msg_Warn( p_demux, "received a PSM packet" );
+-            }
+-            else if( p[3] == 0xbb )
++            if( p[3] == 0xbb )
+             {
+                 msg_Warn( p_demux, "received a SYSTEM packet" );
+             }
+@@ -1429,6 +1475,22 @@ static int DemuxBlock( demux_t *p_demux, const uint8_t *p, int len )
+             block_Release( p_pkt );
+             break;
+ 
++        case 0x1bc:
++            if( ps_psm_fill( &p_sys->psm, p_pkt, p_sys->tk,
++                             p_demux->out ) == VLC_SUCCESS )
++            {
++                msg_Dbg( p_demux, "DVD-HEVC program stream map accepted" );
++            }
++            /* The NAV event precedes the PSM in each VOBU.  Identical maps
++             * correctly return VLC_EGENERIC after the first one, but every
++             * HEVC VOBU still has to cancel the MPEG-2 sequence-end flush
++             * inherited from its original NAV metadata. */
++            if( ps_id_to_type( &p_sys->psm, 0xe0 ) == 0x24 &&
++                dvdnav_is_domain_vts( p_sys->dvdnav ) )
++                p_sys->i_vobu_flush = 0;
++            block_Release( p_pkt );
++            break;
++
+         case 0x1ba:
+         {
+             int64_t i_scr;
+@@ -1496,12 +1558,22 @@ static int DemuxBlock( demux_t *p_demux, const uint8_t *p, int len )
+  *****************************************************************************/
+ static void DemuxForceStill( demux_t *p_demux )
+ {
+-    static const uint8_t buffer[] = {
++    static const uint8_t mpeg2_buffer[] = {
+         0x00, 0x00, 0x01, 0xe0, 0x00, 0x07,
+         0x80, 0x00, 0x00,
+         0x00, 0x00, 0x01, 0xB7,
+     };
+-    DemuxBlock( p_demux, buffer, sizeof(buffer) );
++    static const uint8_t hevc_buffer[] = {
++        0x00, 0x00, 0x01, 0xe0, 0x00, 0x08,
++        0x80, 0x00, 0x00,
++        0x00, 0x00, 0x01, 0x48, 0x01,
++    };
++    demux_sys_t *p_sys = p_demux->p_sys;
++    ps_track_t *video = &p_sys->tk[ps_id_to_tk(0xe0)];
++    if( video->b_configured && video->fmt.i_codec == VLC_CODEC_HEVC )
++        DemuxBlock( p_demux, hevc_buffer, sizeof(hevc_buffer) );
++    else
++        DemuxBlock( p_demux, mpeg2_buffer, sizeof(mpeg2_buffer) );
+ 
+     bool b_empty;
+     es_out_Control( p_demux->out, ES_OUT_GET_EMPTY, &b_empty );
+@@ -1518,7 +1590,7 @@ static void ESNew( demux_t *p_demux, int i_id )
+ 
+     if( tk->b_configured ) return;
+ 
+-    if( ps_track_fill( tk, NULL, i_id, NULL, true ) )
++    if( ps_track_fill( tk, &p_sys->psm, i_id, NULL, true ) )
+     {
+         msg_Warn( p_demux, "unknown codec for id=0x%x", i_id );
+         return;

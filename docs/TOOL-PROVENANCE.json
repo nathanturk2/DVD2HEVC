@@ -1,0 +1,16 @@
+{
+  "schema": "dvd2hevc-tool-provenance-v1",
+  "vlc_commit": "578d28f6c9f2379164516e689418f92ac74a3445",
+  "vlc_version": "3.0.23",
+  "libdvdread_commit": "980143e2192aded576c54a60dd230fa22937b637",
+  "patches": [
+    {
+      "path": "patches/libdvdread/0001-modern-msvc-stdio-and-close.patch",
+      "sha256": "7863a04a74348355975ae3a3cdb5e284417467e019f6b75a2fe0875fdd03bf72"
+    },
+    {
+      "path": "patches/vlc/0001-dvdnav-accept-hevc-program-stream-maps.patch",
+      "sha256": "3c28d20916baf8c4c7278751c4301393f9a73e14949452ec0d72667c11096633"
+    }
+  ]
+}
