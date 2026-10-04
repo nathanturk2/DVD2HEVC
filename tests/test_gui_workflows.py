@@ -31,7 +31,9 @@ class GuiTests(unittest.TestCase):
 
     def close_app(self):
         for callback in self.app.tk.call('after', 'info'):
-            self.app.after_cancel(callback)
+            # Cancel the timer without deleting a child widget's Tcl command;
+            # that widget owns its registered command and destroys it below.
+            self.app.tk.call('after', 'cancel', callback)
         self.app.destroy()
 
     def source(self, name='Movie.v1.iso'):

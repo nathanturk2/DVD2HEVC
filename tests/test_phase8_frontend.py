@@ -1053,7 +1053,7 @@ class Phase8FrontendTests(unittest.TestCase):
                 patch("dvd2hevc_app.frontend.DISPATCHER_STATE", state),
                 patch("dvd2hevc_app.frontend.DISPATCHER_LOCK", dispatcher_lock),
                 patch("dvd2hevc_app.frontend.DISPATCHER_START_LOCK", start_lock),
-                patch("dvd2hevc_app.frontend.process_alive", side_effect=lambda pid: pid == 4242),
+                patch("dvd2hevc_app.frontend.process_alive", side_effect=lambda pid: pid in {4242, os.getpid()}),
                 patch("dvd2hevc_app.frontend.subprocess.Popen", return_value=process) as popen,
             ):
                 threads = [threading.Thread(target=lambda: results.append(ensure_dispatcher())) for _ in range(6)]
