@@ -1,5 +1,18 @@
 # Changelog
 
+## Unreleased
+
+- Collect UHD-BD writer artifacts under `Conversion files`, with an optional
+  shared support directory for library conversions and short per-output names.
+- Remove reproducible media from successful UHD-BD attempts; retain failed work
+  and diagnostics, and independently verify recorded payload hashes on resume.
+- Separate decoded frame records from FFmpeg diagnostics and explicitly select
+  DVD program streams for tiny cells that automatic format detection misreads.
+- Reject false AC-3 sync words inside leading cut frames; feed complete frames
+  to the muxer while retaining original fragments for seamless-boundary recovery.
+- Preserve complete source frames with bad CRC2 words through muxing, restoring
+  their original bytes before the unchanged full audio/picture audit.
+
 ## 0.2.0a2 — DVD mouse navigation
 
 - Match VLC/libdvdnav hover, click and overlapping-button selection; prevent

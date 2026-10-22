@@ -4,6 +4,7 @@ import argparse
 import hashlib
 import json
 import os
+import re
 from pathlib import Path
 import shutil
 import subprocess
@@ -127,11 +128,42 @@ def stock_vlc_gate(image, tools, destination):
                 frames=receipt['frames'], audio_samples=receipt.get('audio_samples',0),
                 result=str(destination / 'result.json'))
 
+def prune_uhd_intermediates(work, receipt):
+    """Prune only our successful attempt's reproducible media; retain all receipts."""
+    work=Path(work).resolve()
+    report=dict(files_removed=0, logical_bytes_removed=0)
+    if not receipt.get('passed') or not receipt.get('manifest',{}).get('verified'):
+        return report
+    output=Path(receipt['output'])
+    if (not output.is_file() or output.stat().st_size!=receipt['manifest'].get('bytes')
+            or not receipt.get('stock_vlc_gate',{}).get('passed')):
+        return report
+    folder=Path(receipt['folder']).resolve()
+    if folder.parent!=work or not re.fullmatch(r'bdmv-[0-9a-f]{12}',folder.name):
+        return report
+    # Neither arbitrary user workspaces nor source/final ISOs are candidates.
+    for root in (folder,folder.with_name(folder.name+'.work')):
+        if not root.is_dir() or root.is_symlink():continue
+        for directory,children,files in os.walk(root,followlinks=False):
+            children[:]=[name for name in children if (Path(directory)/name).resolve().is_relative_to(root)]
+            for name in files:
+                path=Path(directory)/name
+                if (path.suffix.lower() not in {'.vob','.mkv','.m2ts','.ts','.ac3','.eac3','.dts',
+                                               '.hevc','.h265','.m2v','.wav','.pcm','.dvd-pes','.part','.tmp'}
+                        or path.is_symlink() or not path.resolve().is_relative_to(root)):
+                    continue
+                try:
+                    size=path.stat().st_size;path.unlink()
+                except OSError:continue
+                report['files_removed']+=1;report['logical_bytes_removed']+=size
+    return report
+
+
 def author_uhd(source, output, work, *, vlc_root=None, tsmuxer=None, udf_tool=None,
-               java_home=None, label='DVD2HEVC'):
+               java_home=None, label='DVD2HEVC', support_dir=None, keep_intermediates=False):
     from dvd2uhd.author import author
     from dvd2uhd.audit import audit
-    from dvd2uhd.iso import create, payload, sha256
+    from dvd2uhd.iso import create, verify_manifest, sha256, support_directory
     source, output, work = (Path(p).expanduser().resolve() for p in (source, output, work))
     if source == output or (source.is_dir() and source in output.parents):
         raise PipelineError('UHD-BD output must be separate from the source')
@@ -147,6 +179,14 @@ def author_uhd(source, output, work, *, vlc_root=None, tsmuxer=None, udf_tool=No
     check_structure(source)
     work.mkdir(parents=True, exist_ok=True)
     output.parent.mkdir(parents=True, exist_ok=True)
+    support=support_directory(output,support_dir)
+    if support==source or (source.is_dir() and source in support.parents):
+        raise PipelineError('UHD-BD supporting files must be separate from the source')
+    support.mkdir(parents=True,exist_ok=True)
+    if os.stat(support).st_dev!=os.stat(output.parent).st_dev:
+        raise PipelineError('UHD-BD supporting files must be on the output volume for atomic publication')
+    manifest_path=support/'manifest.json'
+    write_json_atomic(support/'output.json',dict(output=str(output),work=str(work)))
     signature = dict(source=str(source), source_sha256=_source_signature(source),
                      runtime_sha256=_runtime_signature(), tsmuxer_sha256=sha256(Path(tools['tsmuxer'])),
                      udf_tool_sha256=sha256(Path(tools['udf_tool'])), label=label)
@@ -155,9 +195,8 @@ def author_uhd(source, output, work, *, vlc_root=None, tsmuxer=None, udf_tool=No
     if output.exists():
         if previous.get('signature') != signature or previous.get('output') != str(output):
             raise PipelineError('Existing output is not this same verified UHD-BD job; it will not be overwritten')
-        folder = Path(previous['folder'])
         # Reuse only after independent payload comparison, even if later publication failed.
-        _emit('uhd-verify-iso'); payload(output, folder)
+        _emit('uhd-verify-iso'); verify_manifest(output, previous.get('manifest',{}).get('files',[]))
         if not previous.get('stock_vlc_gate',{}).get('passed'):
             raise PipelineError('Existing UHD-BD output has no recorded stock-VLC gate')
         if _source_signature(source, 'uhd-source-stable') != signature['source_sha256']:
@@ -165,8 +204,12 @@ def author_uhd(source, output, work, *, vlc_root=None, tsmuxer=None, udf_tool=No
         manifest=previous.get('manifest')
         if manifest:
             manifest['image']=str(output)
-            write_json_atomic(output.with_suffix('.manifest.json'),manifest)
-        if previous.get('passed'): return previous
+            write_json_atomic(manifest_path,manifest)
+        if previous.get('passed'):
+            if not keep_intermediates:
+                previous['cleanup']=prune_uhd_intermediates(work,previous)
+                write_json_atomic(receipt_path,previous)
+            return previous
     else:
         folder = (Path(previous['folder']) if previous.get('signature') == signature
                   and previous.get('folder') else None)
@@ -189,9 +232,12 @@ def author_uhd(source, output, work, *, vlc_root=None, tsmuxer=None, udf_tool=No
                         source=str(source), folder=str(folder), output=str(output), tools=tools,
                         full_media_audit=str(folder/'fidelity-audit.json'), playback_certified=False)
         write_json_atomic(receipt_path, previous)
-        staging = output.parent / ('.' + output.name + '.' + uuid.uuid4().hex + '.part')
+        attempt=support/'attempts'/uuid.uuid4().hex[:12]
+        attempt.mkdir(parents=True,exist_ok=False)
+        staging = attempt/'image.part'
         _emit('uhd-author-iso')
         manifest = create(folder, staging, tool=tools['udf_tool'], label=label,
+                          artifacts_dir=attempt,
                           writer_progress=lambda done,total: _emit('uhd-author-iso',done,total),
                           progress=lambda done,total: _emit('uhd-verify-iso',done,total))
         _emit('uhd-stock-vlc')
@@ -209,18 +255,22 @@ def author_uhd(source, output, work, *, vlc_root=None, tsmuxer=None, udf_tool=No
             os.link(staging, output)
             staging.unlink()
         manifest['image'] = str(output)
-        write_json_atomic(output.with_suffix('.manifest.json'), manifest)
+        write_json_atomic(manifest_path, manifest)
     previous['passed'] = True
     previous['size'] = output.stat().st_size
     previous['finished_at'] = time.strftime('%Y-%m-%dT%H:%M:%S%z')
     write_json_atomic(receipt_path, previous)
+    if not keep_intermediates:
+        previous['cleanup']=prune_uhd_intermediates(work,previous)
+        write_json_atomic(receipt_path, previous)
     _emit('uhd-complete',1,1)
     return previous
 
 def cmd_author_uhd(args):
     result = author_uhd(args.source, args.output, args.work_dir,
                         vlc_root=args.vlc_root, tsmuxer=args.tsmuxer, udf_tool=args.udf_tool,
-                        java_home=args.java_home, label=args.label)
+                        java_home=args.java_home, label=args.label, support_dir=args.support_dir,
+                        keep_intermediates=args.keep_intermediates)
     print('Verified UHD-BD output: ' + result['output'])
     return 0
 
@@ -238,4 +288,6 @@ def add_uhd_commands(commands):
     parser.add_argument('--vlc-root', help='Stock VLC directory with libbluray BD-J')
     parser.add_argument('--tsmuxer'); parser.add_argument('--udf-tool'); parser.add_argument('--java-home')
     parser.add_argument('--label', default='DVD2HEVC')
+    parser.add_argument('--support-dir', help='One folder for writer logs, manifests and temporary ISOs (on output volume)')
+    parser.add_argument('--keep-intermediates', action='store_true', help='Retain reproducible media after successful verification')
     parser.set_defaults(func=cmd_author_uhd)

@@ -132,6 +132,24 @@ For the older custom DVD format, select **HEVC DVD (legacy player)** or use
 in [VLC_BUILD.md](docs/VLC_BUILD.md), plus genisoimage/mkisofs. UHD-BD output
 uses stock VLC and the included UDF writer instead.
 
+## Work files and disk space
+
+UHD-BD writer logs, manifests, progress counters and unpublished images now stay
+in a single `Conversion files` folder beside the output, rather than appearing
+as numerous sidecars among the movies. For `author-uhd`, `--support-dir` selects
+one shared folder for a whole library; it must be on the output volume.
+After a successful conversion, reproducible temporary VOB/MKV/transport files
+are removed from that attempt's workspace. Verification records, navigation,
+logs and failed attempts remain. Resume rechecks the ISO against its recorded
+payload hashes, so it does not require those temporary media copies.
+Use `author-uhd --keep-intermediates` when retaining them for investigation.
+
+For one shared support/work folder when upgrading a collection:
+
+```powershell
+dvd2hevc author-uhd 'D:\Backups\Movie (DVD) (HEVC).iso' 'F:\Converted\Movie (DVD) (UHD-BD).iso' --work-dir 'F:\Converted\Conversion files\work\Movie' --support-dir 'F:\Converted\Conversion files\images'
+```
+
 ## What has been tested
 
 The UHD-BD author/navigation work has a **13-disc commercial DVD backup corpus**:

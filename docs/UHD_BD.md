@@ -7,6 +7,29 @@ Patching VLC is unnecessary. Resolution remains that of the source DVD.
 
 ## Pipeline and progress
 
+Writer logs, manifests and temporary images stay under `Conversion files`
+beside the final image (`author-uhd --support-dir` can share one root across a
+library). After successful publication, the author removes reproducible media
+from its own attempt directories, retaining navigation, graphics, verification
+records and logs. Failed attempts remain available. ISO resume verifies every
+payload file against the saved manifest instead of requiring temporary copies.
+`author-uhd --keep-intermediates` opts out of successful-attempt pruning.
+
+Tiny DVD cells explicitly use the MPEG program-stream demuxer. Decoded-frame
+records and decoder diagnostics are read separately. AC-3 boundary alignment
+checks the next header before accepting a sync word inside a leading fragment;
+only complete frames enter the muxer, while original fragments remain available
+for source-bound seamless-cell reconstruction.
+
+If tsMuxeR rejects a complete source AC-3/E-AC-3 frame because of its CRC2,
+a disposable input receives a temporary corrected word. After multiplexing,
+the original word is restored through independently tracked M2TS/PES offsets.
+Transport continuity, expected temporary bytes and complete restoration are
+checked before any edits. The subsequent unchanged full audio audit must match
+every original complete frame, including its original checksum. This preserves
+source defects and timing; it does not claim to repair damaged source sound.
+Affected frames and their original SHA-256 values are recorded in the report.
+
 The existing conversion encodes each physical DVD video region, compacts the
 HEVC DVD stage and validates its original graph/sector/payload invariants.
 `dvd2hevc_app.uhd` then invokes the included `dvd2uhd` author. No intermediate

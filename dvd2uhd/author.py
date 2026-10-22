@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import re
 import shutil
 import subprocess
 import zipfile
@@ -135,14 +136,39 @@ def extract_cell(disc,key,refs,folder,graphics_dir,index):
                 audio_ids=sorted(audio_ids),source_sha256=digest.hexdigest())
 
 
+def input_options(path):
+    # Tiny, valid DVD cells can score too low for automatic format detection.
+    return ['-f','mpeg'] if Path(path).suffix.lower()=='.vob' else []
+
+
 def probe_media(path,ffprobe):
     """Keep JSON separate from decoder diagnostics on stderr."""
-    result=subprocess.run([str(ffprobe),'-v','error','-show_streams','-of','json',str(path)],
+    result=subprocess.run([str(ffprobe),'-v','error',*input_options(path),'-show_streams','-of','json',str(path)],
                           stdout=subprocess.PIPE,stderr=subprocess.PIPE,timeout=300,
                           creationflags=subprocess.CREATE_NO_WINDOW if os.name=='nt' else 0)
     diagnostics=result.stderr.decode('utf8','replace')
     if result.returncode:raise RuntimeError(diagnostics[:3000])
     return json.loads(result.stdout),diagnostics
+
+
+def decoded_frame_hashes(path,ffmpeg,log):
+    """Read frame records from stdout only; retain decoder diagnostics separately."""
+    result=subprocess.run([str(ffmpeg),'-nostdin','-v','error',*input_options(path),'-i',str(path),
+                           '-map','0:v:0','-frames:v','3','-f','framemd5','-'],
+                          capture_output=True,timeout=300,
+                          creationflags=subprocess.CREATE_NO_WINDOW if os.name=='nt' else 0)
+    diagnostics=result.stderr.decode('utf-8','replace')
+    Path(log).write_text(diagnostics,encoding='utf-8')
+    if result.returncode:raise RuntimeError('Still-frame probe failed: '+diagnostics[-3000:])
+    hashes=[]
+    for line in result.stdout.decode('utf-8','strict').splitlines():
+        if not line.strip() or line.startswith('#'):continue
+        fields=[part.strip() for part in line.split(',')]
+        if len(fields)!=6 or not re.fullmatch('[0-9a-fA-F]{32}',fields[-1]):
+            raise FormatError('Malformed decoded frame record: '+line[:200])
+        hashes.append(fields[-1].lower())
+    if not hashes:raise FormatError('Still-frame probe decoded no pictures')
+    return hashes
 
 
 def still_padding_seconds(duration_ticks,still_seconds,infinite_still,audio_end):
@@ -174,7 +200,7 @@ def mux_cell(folder,index,output,ffmpeg,ffprobe,tsmuxer,duration_ticks=0,infinit
     if fps=="0/0":fps=video["r_frame_rate"]
     a,b=map(int,fps.split("/"))
     if a<=0 or b<=0:raise FormatError("Video has no usable frame rate")
-    cmd=[ffmpeg,"-nostdin","-hide_banner","-loglevel","warning","-y","-i",src,
+    cmd=[ffmpeg,"-nostdin","-hide_banner","-loglevel","warning","-y",*input_options(src),"-i",src,
          "-map","0:v:0","-c","copy","-avoid_negative_ts","make_zero"]
     # PES discovery order is not stable across DVD cells. Explicit maps keep
     # the same physical slot on the same Blu-ray stream across shared clips.
@@ -193,10 +219,7 @@ def mux_cell(folder,index,output,ffmpeg,ffprobe,tsmuxer,duration_ticks=0,infinit
         # audio can make the VOB large, so file size cannot identify a still.
         # BD-J EOF can tear down the decoder before a short clip is presented.
         # Repeat the same independently decodable picture, with no re-encoding.
-        check=run([ffmpeg,"-nostdin","-v","error","-i",folder/"media.mkv",
-                   "-map","0:v:0","-frames:v","3","-f","framemd5","-"])
-        frames=[line for line in check.splitlines() if line and not line.startswith("#")]
-        hashes=[line.rsplit(",",1)[1].strip() for line in frames]
+        hashes=decoded_frame_hashes(folder/'media.mkv',ffmpeg,folder/'still-probe-diagnostics.log')
         if 0<len(hashes)<=2 and len(set(hashes))==1:
             short_presentation_ms=round(len(hashes)*1000*b/a)
             audio_end=max((float(s.get('duration',0))+float(s.get('start_time',0))-float(video.get('start_time',0)) for s in audio),default=0)
@@ -253,6 +276,7 @@ def mux_cell(folder,index,output,ffmpeg,ffprobe,tsmuxer,duration_ticks=0,infinit
         audio_offsets.append(round((float(stream['start_time'])-float(video['start_time']))*1000))
     audio_track=0
     audio_containers=[]
+    audio_inputs=[]
     for t in found:
         codec=t.get("Stream ID","")
         if not codec.startswith(("V_","A_")):continue
@@ -268,7 +292,8 @@ def mux_cell(folder,index,output,ffmpeg,ffprobe,tsmuxer,duration_ticks=0,infinit
             track_input=folder/(f'audio-{audio_track:02d}'+('.ac3' if codec=='A_AC3' else '.dts'))
             original=audio[audio_track]
             copied=original['codec_name'] in ('ac3','eac3','dts')
-            run([ffmpeg,'-nostdin','-v','error','-y','-i',src if copied else folder/'media.mkv',
+            audio_input=src if copied else folder/'media.mkv'
+            run([ffmpeg,'-nostdin','-v','error','-y',*input_options(audio_input),'-i',audio_input,
                  '-map',f"0:{original['index']}" if copied else f'0:a:{audio_track}',
                  '-c','copy','-f','data',track_input],folder/f'audio-{audio_track:02d}.log')
             recovery=(audio_recovery or {}).get(str(audio_streams[audio_track]),(audio_recovery or {}).get(audio_streams[audio_track]))
@@ -276,8 +301,12 @@ def mux_cell(folder,index,output,ffmpeg,ffprobe,tsmuxer,duration_ticks=0,infinit
                 if codec!='A_AC3' or original['codec_name']!='ac3':raise FormatError('Boundary recovery requires original AC-3')
                 from .boundary_audio import complete
                 complete(track_input,recovery)
+            if codec=='A_AC3':
+                from .boundary_audio import mux_input as complete_audio_input
+                track_input=complete_audio_input(track_input)
             opts=[opt for opt in opts if not opt.startswith('track=')]
         if codec.startswith('A_'):
+            audio_inputs.append(dict(codec=codec,path=track_input))
             audio_containers.append('elementary' if track_input.suffix in ('.ac3','.dts') else 'mkv');audio_track+=1
         lines.append(f'{codec}, "{track_input}", '+", ".join(opts))
     if len(lines)!=2+len(audio):raise FormatError("tsMuxeR omitted a source audio/video stream")
@@ -297,7 +326,7 @@ def mux_cell(folder,index,output,ffmpeg,ffprobe,tsmuxer,duration_ticks=0,infinit
             subtitle_channels.append(dict(logical=logical,language=language))
     meta=folder/"mux.meta"
     meta.write_text("\n".join(lines)+"\n",encoding="utf-8")
-    template,data=install_mux(folder,index,output,tsmuxer,[s['language'] for s in subtitle_channels])
+    template,data,crc_preservation=install_mux(folder,index,output,tsmuxer,[s['language'] for s in subtitle_channels],audio_inputs)
     return template,dict(video_codec=video["codec_name"],width=video["width"],height=video["height"],
                          fps=fps,audio_count=len(audio),audio_streams=audio_streams,
                          audio_formats=[(s['codec_name'],s.get('sample_rate'),s.get('channels')) for s in audio],
@@ -305,6 +334,7 @@ def mux_cell(folder,index,output,ffmpeg,ffprobe,tsmuxer,duration_ticks=0,infinit
                          audio_languages=[(languages or {}).get(slot,'und') for slot in audio_streams],
                          audio_containers=audio_containers,
                          audio_boundary_recovery=audio_recovery or {},
+                         audio_crc_preservation=crc_preservation,
                          subtitle_controls=subtitle_channels,
                          playlist_times=bdmv.playlist_times(data),still_repeated=padded,sequence_end=separate,
                          still_silent_tail_ms=still_silent_tail_ms(probe,bdmv.playlist_times(data)) if padded else 0,
@@ -312,17 +342,37 @@ def mux_cell(folder,index,output,ffmpeg,ffprobe,tsmuxer,duration_ticks=0,infinit
                          short_presentation_ms=short_presentation_ms)
 
 
-def install_mux(folder,index,output,tsmuxer,subtitle_languages):
+def install_mux(folder,index,output,tsmuxer,subtitle_languages,audio_inputs=None):
     """Mux prepared inputs and atomically replace only this physical clip."""
     folder=Path(folder);output=Path(output);meta=folder/'mux.meta'
     authored=folder/"bd"
-    run([tsmuxer,meta,authored],folder/"tsmuxer.log")
+    log=run([tsmuxer,meta,authored],folder/"tsmuxer.log")
+    bad_tracks={int(n)-2 for n in re.findall(r'AC3 stream \(track (\d+)\): bad frame detected',log)}
+    changes={}
+    if bad_tracks:
+        from .audio_preservation import prepare
+        text=meta.read_text(encoding='utf-8')
+        for ordinal in sorted(bad_tracks):
+            if not audio_inputs or not 0<=ordinal<len(audio_inputs) or audio_inputs[ordinal]['codec']!='A_AC3':
+                raise FormatError('Cannot identify damaged AC-3 mux input')
+            original=audio_inputs[ordinal]['path'];prepared,rows=prepare(original)
+            text=text.replace('"'+str(original)+'"','"'+str(prepared)+'"')
+            changes[ordinal]=rows
+        prepared_meta=folder/'mux-preserve-crc.meta';prepared_meta.write_text(text,encoding='utf-8')
+        authored=folder/'bd-preserve-crc'
+        retry=run([tsmuxer,prepared_meta,authored],folder/'tsmuxer-preserve-crc.log')
+        if re.search(r'AC3 stream .*bad frame detected',retry):raise FormatError('AC-3 mux retry still omits frames')
     bd=authored/"BDMV"
     template=(bd/"index.bdmv").read_bytes()
     clpi=next((bd/"CLIPINF").glob("*.clpi"))
     stream=next((bd/"STREAM").glob("*.m2ts"))
     playlist=next((bd/"PLAYLIST").glob("*.mpls"))
     data=bdmv.rename_playlist(playlist.read_bytes(),index)
+    if changes:
+        from .audio_preservation import restore
+        tracks=bdmv.primary_streams(data)[0]['audio']
+        if len(tracks)!=len(audio_inputs):raise FormatError('Audio inventory changed during CRC preservation')
+        restore(stream,{tracks[ordinal]['pid']:rows for ordinal,rows in changes.items()})
     native=bdmv.primary_streams(data)[0]['subtitle']
     if [s['language'] for s in native]!=subtitle_languages:
         raise FormatError('Muxer changed native subtitle channel inventory/order/languages')
@@ -339,7 +389,7 @@ def install_mux(folder,index,output,tsmuxer,subtitle_languages):
     for prefix in ("", "BACKUP/"):
         target=output/"BDMV"/(prefix+"PLAYLIST")/f"{index:05d}.mpls"
         target.parent.mkdir(parents=True,exist_ok=True);target.write_bytes(data)
-    return template,data
+    return template,data,changes
 
 
 def author(source,output,*,tsmuxer=None,ffmpeg=None,ffprobe=None,bdj_api=None,max_cells=None,menus_only=False,progress=None):

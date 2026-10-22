@@ -102,3 +102,25 @@ def complete(path,recovery):
     if len(frame)!=frame_size(frame) or hashlib.sha256(frame).hexdigest()!=recovery['frame_sha256']:
         raise ValueError('AC-3 boundary reconstruction changed')
     with path.open('ab') as f:f.write(prefix)
+
+
+def mux_input(path):
+    """Give the muxer complete frames, retaining original fragments for planning.
+
+    Some muxers lock onto a false sync word inside a leading cut frame and
+    consequently omit the first complete access unit. Explicit boundaries
+    avoid that guess without changing any complete compressed audio bytes.
+    """
+    path=Path(path)
+    prefix,suffix=edge_fragments(path)
+    if not prefix and not suffix:return path
+    output=path.with_name(path.stem+'.frames'+path.suffix)
+    remaining=path.stat().st_size-len(prefix)-len(suffix)
+    if remaining<=0:raise ValueError('No complete audio for muxing')
+    with path.open('rb') as source,output.open('wb') as destination:
+        source.seek(len(prefix))
+        while remaining:
+            block=source.read(min(1024*1024,remaining))
+            if not block:raise ValueError('Truncated audio while preparing mux input')
+            destination.write(block);remaining-=len(block)
+    return output

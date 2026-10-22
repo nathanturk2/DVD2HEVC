@@ -4,6 +4,7 @@ DVD cell cuts can start in an audio frame. Compare decodable complete frames
 separately from those fragments; never silently count a fragment as a frame.
 """
 import hashlib
+import itertools
 from .source import FormatError
 
 # AC-3 words per frame at 48/44.1/32 kHz, paired 44.1 kHz sizes.
@@ -35,10 +36,13 @@ def inventory(chunks):
     prefix = bytearray()
     count = frame_bytes = total = 0
     synchronized = False
-    for chunk in chunks:
-        total += len(chunk);payload.update(chunk);pending.extend(chunk)
+    for chunk in itertools.chain(chunks,[None]):
+        final=chunk is None
+        if not final:
+            total += len(chunk);payload.update(chunk);pending.extend(chunk)
         while len(pending) >= 6:
             if not synchronized:
+                if len(prefix)>3840:raise FormatError('Audio cell has excessive unsynchronized prefix')
                 if pending[:2] != b'\x0b\x77':
                     prefix.append(pending.pop(0))
                     if len(prefix) > 3840:raise FormatError('Audio cell has excessive unsynchronized prefix')
@@ -46,6 +50,15 @@ def inventory(chunks):
                 try:size=frame_size(pending[:6])
                 except FormatError:
                     prefix.append(pending.pop(0));continue
+                # A cut frame's compressed payload can contain a false sync
+                # word with a plausible header. Confirm the next frame before
+                # committing to an alignment; never resynchronize midstream.
+                if len(pending)<size+6 and not final:break
+                if len(pending)>=size+6:
+                    try:frame_size(pending[size:size+6])
+                    except FormatError:
+                        if not prefix:raise FormatError('Invalid AC-3 frame chain at stream start')
+                        prefix.append(pending.pop(0));continue
                 synchronized=True
             else:size=frame_size(pending[:6])
             if size < 6:raise FormatError('AC-3 frame is smaller than its header')

@@ -2,7 +2,7 @@
 """Original navigation, clip reuse, track maps and compressed-picture audit."""
 import hashlib,json,os,re,subprocess,tempfile,zipfile,itertools
 from pathlib import Path
-from .author import build_java,discover,run,unique_cells,probe_media
+from .author import build_java,discover,run,unique_cells,probe_media,input_options
 from .ifo import inspect
 from .source import Disc
 from .iso import sha256
@@ -22,7 +22,7 @@ def picture_payload_matches(original, authored, repeated=False):
 def vcl_hashes(path,ffmpeg):
     """Stream Annex-B NALs; ignore muxer-added AUD/parameter sets, hash VCL bytes."""
     with tempfile.TemporaryFile() as errors:
-        p=subprocess.Popen([str(ffmpeg),'-nostdin','-v','error','-i',str(path),'-map','0:v:0',
+        p=subprocess.Popen([str(ffmpeg),'-nostdin','-v','error',*input_options(path),'-i',str(path),'-map','0:v:0',
                             '-c:v','copy','-f','hevc','-'],stdout=subprocess.PIPE,stderr=errors,
                            creationflags=subprocess.CREATE_NO_WINDOW if os.name=='nt' else 0)
         pending=b'';hashes=[];start=re.compile(b'\x00\x00(?:\x00)?\x01')
@@ -208,7 +208,7 @@ def audit(root,*,media=False,output=None,progress=None,bdj_api=None):
 def audio_hash(path,stream,ffmpeg):
     """Hash elementary audio bytes independently of PES/TS packet boundaries."""
     with tempfile.TemporaryFile() as errors:
-        child=subprocess.Popen([str(ffmpeg),'-nostdin','-v','error','-i',str(path),'-map',f'0:{stream}',
+        child=subprocess.Popen([str(ffmpeg),'-nostdin','-v','error',*input_options(path),'-i',str(path),'-map',f'0:{stream}',
                                 '-c','copy','-f','data','-'],stdout=subprocess.PIPE,stderr=errors,
                                creationflags=subprocess.CREATE_NO_WINDOW if os.name=='nt' else 0)
         digest=hashlib.sha256();size=0
@@ -226,7 +226,7 @@ def audio_hash(path,stream,ffmpeg):
 def audio_inventory(path,stream,ffmpeg,continuation=b''):
     from .audio_frames import inventory
     with tempfile.TemporaryFile() as errors:
-        child=subprocess.Popen([str(ffmpeg),'-nostdin','-v','error','-i',str(path),'-map',f'0:{stream}',
+        child=subprocess.Popen([str(ffmpeg),'-nostdin','-v','error',*input_options(path),'-i',str(path),'-map',f'0:{stream}',
                                 '-c','copy','-f','data','-'],stdout=subprocess.PIPE,stderr=errors,
                                creationflags=subprocess.CREATE_NO_WINDOW if os.name=='nt' else 0)
         try:
@@ -241,7 +241,7 @@ def audio_inventory(path,stream,ffmpeg,continuation=b''):
 def audio_prefix(path,stream,ffmpeg,size):
     if not 0<size<=3840:raise ValueError('Unbounded original audio continuation')
     with tempfile.TemporaryFile() as errors:
-        child=subprocess.Popen([str(ffmpeg),'-nostdin','-v','error','-i',str(path),'-map',f'0:{stream}',
+        child=subprocess.Popen([str(ffmpeg),'-nostdin','-v','error',*input_options(path),'-i',str(path),'-map',f'0:{stream}',
                                 '-c','copy','-f','data','-'],stdout=subprocess.PIPE,stderr=errors,
                                creationflags=subprocess.CREATE_NO_WINDOW if os.name=='nt' else 0)
         try:

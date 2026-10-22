@@ -12,6 +12,10 @@ from dvd2hevc_app.contracts import capability_contract,contract_compatible
 from dvd2hevc_app.job_progress import _uhd_output_progress
 from dvd2hevc_app.pipeline import PipelineError
 
+def uhd_manifest(output):
+    from dvd2uhd.iso import support_directory
+    return support_directory(output)/'manifest.json'
+
 class UhdWorkflowTests(unittest.TestCase):
     def test_historical_timestamp_offsets_keep_recovery_and_duration_consistent(self):
         from dvd2hevc_app.timestamps import parse_timestamp
@@ -74,7 +78,7 @@ class UhdWorkflowTests(unittest.TestCase):
         for target,options in [('dvd2uhd.author.author',dict(side_effect=author)),
                                ('dvd2uhd.audit.audit',dict(return_value={'missing':[]})),
                                ('dvd2uhd.iso.create',dict(side_effect=create)),
-                               ('dvd2uhd.iso.payload',dict(return_value=[])),
+                               ('dvd2uhd.iso.verify_manifest',dict(return_value=[])),
                                ('dvd2hevc_app.tools.discover_tools',dict(return_value={'ffmpeg':str(binary),'ffprobe':str(binary)}))]:
             context=patch(target,**options);context.start();self.addCleanup(context.stop)
         context=patch.dict(os.environ,os.environ.copy());context.start();self.addCleanup(context.stop)
@@ -110,7 +114,7 @@ class UhdWorkflowTests(unittest.TestCase):
             with self.assertRaisesRegex(PipelineError,'Source changed during'):
                 uhd.author_uhd(source,output,work)
         self.assertFalse(output.exists())
-        self.assertEqual(len(list(root.glob('.output.iso.*.part'))),1)
+        self.assertEqual(len(list((root/'Conversion files').rglob('image.part'))),1)
         self.assertFalse(json.loads((work/'uhd-output.json').read_text())['passed'])
 
     def test_cached_authoring_report_must_belong_to_requested_source(self):
@@ -131,7 +135,7 @@ class UhdWorkflowTests(unittest.TestCase):
             with self.assertRaisesRegex(PipelineError,'gate failed'):
                 uhd.author_uhd(source,output,work)
         self.assertFalse(output.exists())
-        self.assertEqual(len(list(root.glob('.output.iso.*.part'))),1)
+        self.assertEqual(len(list((root/'Conversion files').rglob('image.part'))),1)
         self.assertFalse(json.loads((work/'uhd-output.json').read_text())['passed'])
 
     def test_success_resume_verifies_payload_and_rejects_changed_source(self):
@@ -139,7 +143,7 @@ class UhdWorkflowTests(unittest.TestCase):
         with patch.object(uhd,'stock_vlc_gate',return_value={'passed':True}) as gate:
             result=uhd.author_uhd(source,output,work)
             self.assertTrue(result['passed']);self.assertEqual(output.read_bytes(),b'verified-image')
-            self.assertEqual(json.loads(output.with_suffix('.manifest.json').read_text())['image'],str(output))
+            self.assertEqual(json.loads(uhd_manifest(output).read_text())['image'],str(output))
             uhd.author_uhd(source,output,work)
             self.assertEqual(gate.call_count,1)
             source.write_bytes(b'changed-source')
@@ -159,7 +163,7 @@ class UhdWorkflowTests(unittest.TestCase):
         root,source,output,work=self.fixtures()
         real_write=uhd.write_json_atomic
         def interrupted_write(path,value):
-            if Path(path)==output.with_suffix('.manifest.json'):
+            if Path(path)==uhd_manifest(output):
                 raise OSError('interrupted manifest publication')
             return real_write(path,value)
         with patch.object(uhd,'stock_vlc_gate',return_value={'passed':True}) as gate:
@@ -167,12 +171,12 @@ class UhdWorkflowTests(unittest.TestCase):
                 with self.assertRaisesRegex(OSError,'interrupted'):
                     uhd.author_uhd(source,output,work/'uhd')
             self.assertTrue(output.is_file())
-            self.assertFalse(output.with_suffix('.manifest.json').exists())
+            self.assertFalse(uhd_manifest(output).exists())
             self.assertTrue(frontend._existing_output_is_authored_job_artifact(
                 dict(output=str(output),work_root=str(work),settings={'output_format':'uhd-bd'})))
             result=uhd.author_uhd(source,output,work/'uhd')
             self.assertTrue(result['passed'])
-            self.assertTrue(output.with_suffix('.manifest.json').is_file())
+            self.assertTrue(uhd_manifest(output).is_file())
             self.assertEqual(gate.call_count,1)
 
 if __name__=='__main__':unittest.main()
