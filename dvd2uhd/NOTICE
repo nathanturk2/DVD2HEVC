@@ -6,6 +6,11 @@ Copyright (C) 2000, 2001 Martin Norbäck, Håkan Hjort
 Originally part of the Ogle DVD player; GPL-2.0-or-later, used under GPL v3.
 Upstream: https://code.videolan.org/videolan/libdvdnav
 
+DvdXlet.java's pointer selection adapts libdvdnav src/highlight.c:
+Copyright (C) 2000 Rich Wareham <richwareham@users.sourceforge.net>.
+GPL-2.0-or-later, used under GPL v3. Hover selects without auto-action;
+mouse activation selects then executes once. Directional auto-action is retained.
+
 udf_validation.py and the read-only UdfImage implementation in udf_reader.py
 are adapted from the BD2HEVC project (GPL-3.0-only), imported 2026-10-04.
 The complete GPL v3 license is in LICENSE.

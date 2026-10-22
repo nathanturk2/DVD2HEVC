@@ -4,10 +4,25 @@
 already-decrypted DVD ISOs from MPEG-2 to HEVC, preserving the original menus,
 extras, chapters, shared footage and audio/subtitle choices.
 
-**0.2.0a1 alpha: UHD-BD output is now the default.** The DVD virtual machine runs
+**0.2.0a2 alpha: UHD-BD output with VLC-style mouse navigation.** The DVD virtual machine runs
 in BD-J inside a BDMV/UDF 2.50 image. **Stock VLC with Java can play it; patching
 VLC is not necessary.** The explicit legacy HEVC DVD option remains available
 for its private patched player.
+
+The mouse update fixes scene-menu page arrows activating on hover, including
+Gladiator. Hover highlights; a click activates once. Original shaped highlight
+bitmaps and directional auto-action are preserved. Existing UHD-BD images need
+their embedded BD-J runtime refreshed; updating the application alone does not
+change an already authored ISO.
+
+To rebuild a fixed UHD-BD from a retained HEVC-DVD backup, use a new output name:
+
+```powershell
+dvd2hevc author-uhd 'D:\Backups\Movie (DVD) (HEVC).iso' 'F:\Converted\Movie fixed (DVD) (UHD-BD).iso' --work-dir 'F:\Work\Movie-fixed'
+```
+
+The existing output is protected. This remuxes the existing HEVC video without
+reencoding and verifies the new image before publication.
 
 Video retains its DVD resolution and cadence policy. “UHD-BD” identifies the
 HEVC Blu-ray structure used for VLC playback; it does not promise 4K upscaling,

@@ -1,4 +1,4 @@
-# DVD2HEVC 0.2.0a1 release checklist
+# DVD2HEVC 0.2.0a2 release checklist
 
 The default is UHD-BD output for stock VLC with Java. Private VLC patching is
 only for the explicit legacy `dvd-hevc` format. See [PUBLISHING.md](PUBLISHING.md).
@@ -9,6 +9,8 @@ only for the explicit legacy `dvd-hevc` format. See [PUBLISHING.md](PUBLISHING.m
   progress and ISO verification. Overall/mux bars must reserve 100% for success.
 - Run the Python suite, Java self-tests, source/wheel artifact checks, shared
   module parity and native/Hadris provenance checks.
+- Check repeated hover and single-click activation in Gladiator scene selection;
+  retain arrow-key auto-action and original highlight shapes.
 - Run a generated DVD through the complete new default without a patched
   player. Check BDMV/UDF payloads, the BD-J startup gate, chapters, seek/pause
   and final output protection/resume. Test legacy output separately when its

@@ -1,3 +1,26 @@
+# DVD2HEVC 0.2.0a2 alpha
+
+- Match VLC/libdvdnav DVD mouse behavior: hovering selects without executing
+  auto-action buttons, and a click selects and executes exactly once. This fixes
+  Gladiator's scene-page arrows skipping pages while the pointer moves over them.
+  Overlapping hit rectangles use the nearest button centre, with inclusive edges
+  and the first button winning a tie. Original directional auto-action remains.
+- Ignore mouse events against a menu whose DVD navigation has already changed.
+- Add executable regression coverage of the actual BD-J mouse/key handlers,
+  including repeated hover, clicks, overlap, prohibitions and stale navigation.
+
+Local validation on 22 October 2026: 276 Python tests ran, 275 passed and one
+optional original-disc test was skipped. The actual Xlet input handlers were
+exercised with a test-only AWT host; production Java compiled against stock
+VLC/libbluray's API and VM self-tests passed. Gladiator's repaired ISO passed
+stock-VLC BD-J startup and interactive scene-menu checking. The runtime-only
+repair retained every byte outside the JAR and every other JAR entry, including
+the disc model and original graphic masks. New conversions include this fix;
+existing authored images retain their old runtime until refreshed.
+
+UHD-BD remains the default. This release contains the mouse fix, regression
+tests and documentation; it does not add a playback-library setup feature.
+
 # DVD2HEVC 0.2.0a1 alpha
 
 This release makes UHD-BD the default output for new conversions. The original

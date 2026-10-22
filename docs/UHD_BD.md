@@ -26,6 +26,16 @@ retained. Physical clips can be shared by separate logical editions. Compatible
 seamless cell runs become native joined playlists. BD-J clocks follow the DVD
 presentation independently of still padding and pause in the appropriate states.
 
+Mouse navigation follows VLC's DVD/libdvdnav behavior: hover highlights a button
+without running its command, including buttons marked for auto-action. A click
+selects and executes once. For overlapping rectangles, the closest centre wins;
+ties use the first button and rectangle edges are inclusive. Moving outside all
+buttons retains the highlight. Arrow-key navigation still honors DVD auto-action.
+See libdvdnav's `mouse_select`/`mouse_activate` in
+[highlight.c](https://code.videolan.org/videolan/libdvdnav/-/blob/6.1.1/src/highlight.c)
+and VLC's `EventMouse` in
+[dvdnav.c](https://code.videolan.org/videolan/vlc/-/blob/3.0.23/modules/access/dvdnav.c).
+
 VLC's native subtitle menu synchronizes with DVD SPRM 2 through the public
 BD-J SubtitlingControl. Clear-only PGS channels name the logical slots; the
 original subtitle artwork, forced flags and timing are painted by BD-J.

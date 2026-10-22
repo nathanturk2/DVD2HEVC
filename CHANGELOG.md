@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.2.0a2 — DVD mouse navigation
+
+- Match VLC/libdvdnav hover, click and overlapping-button selection; prevent
+  hovering auto-action page arrows from repeatedly changing menu pages.
+- Preserve directional auto-action and reject mouse events for a stale DVD menu.
+- Exercise the actual BD-J input handlers in executable regression tests.
+
 ## 0.2.0a1 — UHD-BD default
 
 - Integrate the DVD VM/BD-J author; default output plays in stock VLC with Java.

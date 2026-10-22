@@ -355,9 +355,14 @@ public final class DvdXlet extends HComponent implements Xlet, UserEventListener
     private void select(int n) {
         if(menu==null || n<1 || n>menu.count)return;
         selected=n;nav.vm.sprm[8]=n<<10;
-        DiscModel.Button b=menu.button(n,nav.pgc.wide);
-        if(b.auto!=0)activate();
         repaint();
+    }
+    private void navigate(int n) {
+        if(menu==null || n<1 || n>menu.count)return;
+        select(n);
+        DiscModel.Button b=menu.button(n,nav.pgc.wide);
+        // libdvdnav applies auto_action_mode to directional selection only.
+        if(b!=null && b.auto!=0)activate();
     }
     private void activate() {
         if(menu==null)return;
@@ -396,10 +401,10 @@ public final class DvdXlet extends HComponent implements Xlet, UserEventListener
             else if(menu!=null) {
                 DiscModel.Button b=menu.button(selected,nav.pgc.wide);
                 if(b!=null) {
-                    if(k==KeyEvent.VK_UP)select(b.up);
-                    if(k==KeyEvent.VK_DOWN)select(b.down);
-                    if(k==KeyEvent.VK_LEFT)select(b.left);
-                    if(k==KeyEvent.VK_RIGHT)select(b.right);
+                    if(k==KeyEvent.VK_UP)navigate(b.up);
+                    if(k==KeyEvent.VK_DOWN)navigate(b.down);
+                    if(k==KeyEvent.VK_LEFT)navigate(b.left);
+                    if(k==KeyEvent.VK_RIGHT)navigate(b.right);
                 }
             }
         } catch(Throwable ex) {fail(ex);}
@@ -472,17 +477,24 @@ public final class DvdXlet extends HComponent implements Xlet, UserEventListener
         pointer(e,true);
     }
     private void pointer(MouseEvent e,boolean pressed) {
-        if(menu==null || time()>=menu.selectEnd || ((nav.pgc.uops|graphics.uops(time()))&(1<<17))!=0)return;
+        if(failure!=null || menu==null || nav.serial!=serial || time()>=menu.selectEnd || ((nav.pgc.uops|graphics.uops(time()))&(1<<17))!=0)return;
         // Stock VLC passes encoded-video raster coordinates to BD-J mouse
         // events, rather than coordinates in the HD overlay plane.
-        int x=e.getX(),y=e.getY();
+        // Match VLC's libdvdnav mouse_select/mouse_activate: inclusive bounds,
+        // nearest centre when rectangles overlap, first button wins a tie.
+        // Hover selects only; clicking selects and executes exactly once,
+        // regardless of auto_action_mode. Outside all buttons does nothing.
+        int x=e.getX(),y=e.getY(),best=0,distance=0x08000000;
         for(int n=1;n<=menu.count;n++) {
             DiscModel.Button b=menu.button(n,nav.pgc.wide);
-            if(x>=b.x && x<=b.x2 && y>=b.y && y<=b.y2) {
-                if(pressed || selected!=n)select(n);
-                if(pressed && b.auto==0)activate();break;
+            if(b!=null && x>=b.x && x<=b.x2 && y>=b.y && y<=b.y2) {
+                int dx=(b.x+b.x2)/2-x,dy=(b.y+b.y2)/2-y,d=dx*dx+dy*dy;
+                if(d<distance) {distance=d;best=n;}
             }
         }
+        if(best==0)return;
+        if(selected!=best)select(best);
+        if(pressed)activate();
     }
     public void mouseClicked(MouseEvent e) {}
     public void mouseReleased(MouseEvent e) {}

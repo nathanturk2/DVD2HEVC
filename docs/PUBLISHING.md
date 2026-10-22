@@ -1,6 +1,6 @@
 # Building and publishing the alpha releases
 
-The versions are **DVD2HEVC 0.2.0a1** (new default UHD-BD output) and
+The versions are **DVD2HEVC 0.2.0a2** (DVD mouse-navigation fix) and
 **BD2HEVC 0.2.0a2** (the GUI update). Both projects remain independently
 installable. Preparation does not post an announcement, create a GitHub release
 or publish a package.
@@ -46,7 +46,7 @@ prove a remote CI run occurred.
 The repositories are [DVD2HEVC](https://github.com/nathanturk2/DVD2HEVC) and
 [BD2HEVC](https://github.com/nathanturk2/BD2HEVC). Review the final source revision,
 author identity and artifact SHA-256 values before pushing. These versions use
-`v0.2.0a1` for DVD and `v0.2.0a2` for BD; keep release tags immutable and use a
+`v0.2.0a2` for DVD and BD; keep release tags immutable and use a
 new version for a subsequent release. Verify the hosted CI run for that revision.
 Upload matching source ZIPs, wheels/sdists and release notes as alpha prereleases.
 
