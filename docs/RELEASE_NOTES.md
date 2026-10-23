@@ -1,5 +1,18 @@
 # DVD2HEVC 0.2.0a3 development update, 23 October 2026
 
+- Wait for native playback completion before advancing ordinary DVD video.
+  The BD-J media clock can start ahead of VLC's buffered presentation; using
+  the IFO duration to stop an ordinary clip discarded its queued tail. Taken
+  2's 11-second opening message previously delivered about 5.5 seconds of
+  audio. It now plays through before advancing. The same protection applies
+  when a joined playlist ends before the DVD PGC. Adjacent cells within one
+  playlist retain continuous playback; repeated and native-held DVD stills
+  retain their original wait timing. The fix changes only the Xlet class.
+  Stock-VLC tests retain approximately 10.98 seconds of decoded audio from
+  the 11.01-second source stream and 38.50 seconds from a 38.53-second intro,
+  including pause/resume of the shorter clip. The approximately 32 ms decoder
+  startup difference is distinct from the previous multi-second truncation.
+
 - Keep hover highlighting alive in short DVD still menus, including Gladiator's
   audio setup and both subtitle pages. Independent unpadded stills now use the
   Blu-ray playlist's native infinite-still flag; the DVD VM retains control of

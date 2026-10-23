@@ -133,6 +133,29 @@ public final class DvdXlet extends HComponent implements Xlet, UserEventListener
     // libbluray's JMF getMediaTime() advances even when its rate is zero;
     // getMediaNanoseconds() observes pause. Both are public JMF methods.
     private long position() {return player==null?0:player.getMediaNanoseconds()/1000000;}
+    private boolean timedPresentation(DiscModel.Cell c) {
+        // Ordinary video finishes through EndOfMediaEvent, after VLC drains
+        // its decoders. Its JMF clock starts before buffered A/V is presented;
+        // stopping it at the IFO duration can discard seconds of queued media.
+        // Repeated or natively held pictures instead need the DVD still clock.
+        return c.repeated || c.still!=0 || (nav.cell==nav.pgc.cells.length && nav.pgc.still!=0);
+    }
+    private boolean continuesPlaylist(DiscModel.Cell c) {
+        // A joined run may end before the PGC (for a command or still). Wait
+        // for native EOF there; only adjacent items in this same playlist can
+        // advance without closing the decoder and losing its buffered tail.
+        return c.end>c.start && nav.cell<nav.pgc.cells.length &&
+               nav.pgc.cells[nav.cell].playlist==c.playlist;
+    }
+    private boolean advancePresentation(DiscModel.Cell c,long absolute,long t,long now) {
+        if(ended || clock.paused())return false;
+        if(continuesPlaylist(c) && absolute>=c.end) {
+            nav.endCell();return true;
+        }
+        if(c.end==0 && timedPresentation(c) && c.presentation>0 && t>=c.presentation)
+            presentationEnded(c,now);
+        return false;
+    }
     private void presentationEnded(DiscModel.Cell c,long now) {
         endMedia=c.presentation;endWall=now;ended=true;
         // Native still mode keeps the final picture and live overlay output.
@@ -350,14 +373,9 @@ public final class DvdXlet extends HComponent implements Xlet, UserEventListener
                             nav.currentMillis=t;
                             updateMenu(t);audio();subtitleControl();
                             DiscModel.Cell c=nav.currentCell();
-                            if(!ended && !clock.paused() && c.end>c.start && nav.cell<nav.pgc.cells.length && absolute>=c.end) {
-                                nav.endCell();continue;
-                            }
                             // The asset can contain repeated still pictures for
                             // decoder startup. DVD timing remains the IFO timing.
-                            if(!ended && !clock.paused() && c.end==0 && c.presentation>0 && t>=c.presentation) {
-                                presentationEnded(c,now);
-                            }
+                            if(advancePresentation(c,absolute,t,now))continue;
                             if(ended && stillUntil<0) {
                                 int still=c.still!=0?c.still:(nav.cell==nav.pgc.cells.length?nav.pgc.still:0);
                                 stillUntil=still==255?Long.MAX_VALUE:now+Math.max(0,c.presentation-t)+still*1000L;
