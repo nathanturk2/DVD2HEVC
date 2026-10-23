@@ -1340,6 +1340,7 @@ class Phase8FrontendTests(unittest.TestCase):
             with (
                 patch("dvd2hevc_app.frontend.WATCH_ROOT", watch_root),
                 patch("dvd2hevc_app.frontend.find_patched_vlc_root", return_value=root / "vlc"),
+                patch("dvd2hevc_app.frontend.find_stock_vlc_root", return_value=root / "vlc"),
                 patch("dvd2hevc_app.frontend._spawn_watched_batch", return_value=4321),
             ):
                 first_path, first = create_watched_batch(args)
@@ -1473,6 +1474,7 @@ class Phase8FrontendTests(unittest.TestCase):
             with (
                 patch("dvd2hevc_app.frontend.WATCH_ROOT", watch_root),
                 patch("dvd2hevc_app.frontend.find_patched_vlc_root", return_value=root / "vlc"),
+                patch("dvd2hevc_app.frontend.find_stock_vlc_root", return_value=root / "vlc"),
                 patch("dvd2hevc_app.frontend._spawn_watched_batch", return_value=4321),
             ):
                 _path, watch = create_watched_batch(args)

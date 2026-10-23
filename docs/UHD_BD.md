@@ -7,9 +7,11 @@ Patching VLC is unnecessary. Resolution remains that of the source DVD.
 
 ## Pipeline and progress
 
-Writer logs, manifests and temporary images stay under `Conversion files`
-beside the final image (`author-uhd --support-dir` can share one root across a
-library). After successful publication, the author removes reproducible media
+Writer logs and manifests stay under `Conversion files` beside the final image
+(`author-uhd --support-dir` can share one root across a library). When the work
+volume differs, the temporary ISO is written and checked there. A destination
+copy is independently SHA-256 checked and atomically published before the
+working image is removed. After successful publication, the author removes reproducible media
 from its own attempt directories, retaining navigation, graphics, verification
 records and logs. Failed attempts remain available. ISO resume verifies every
 payload file against the saved manifest instead of requiring temporary copies.
@@ -37,8 +39,9 @@ custom ISO or private-player gate is needed for this output.
 
 The final 20% of overall progress covers source fingerprinting (80–81%),
 BDMV/BD-J authoring (81–90%), full media audit (90–94%), ISO writing (94–96%),
-payload verification (96–98%), stock-VLC startup (98–99%) and a final source
-fingerprint check (99–99.5%). The mux lane
+payload verification (96–98%), stock-VLC startup (98–99%), optional cross-volume
+copy/readback verification (99–99.5%) and a final source fingerprint check
+(99.5–99.8%). The mux lane
 also includes these stages. Author/audit counts come from physical clips,
 writer counts from actual Hadris payload bytes, and verification counts from
 individually compared files. Completion is reserved for a passed job.

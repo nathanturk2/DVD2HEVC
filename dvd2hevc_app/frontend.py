@@ -519,12 +519,15 @@ def managed_work_base() -> Path:
     override = os.environ.get("DVD2HEVC_WORK_ROOT")
     if override:
         return Path(override).expanduser().resolve()
+    from .workspace import configured_work_root
+    configured=configured_work_root()
+    if configured is not None:return configured
     if os.name == "nt" and os.environ.get("LOCALAPPDATA"):
         return (Path(os.environ["LOCALAPPDATA"]) / "DVD2HEVC" / "work").resolve()
     return (config_root() / "work").resolve()
 
 
-def managed_job_work_root(job_id: str) -> Path:
+def managed_job_work_root(job_id: str, base: Path | None = None) -> Path:
     """Return a short, private workspace path for a newly planned job.
 
     Report directories intentionally retain descriptive disc names, but using
@@ -533,7 +536,7 @@ def managed_job_work_root(job_id: str) -> Path:
     remains recognizable while keeping FFmpeg, HandBrake, Git and Explorer on
     safe paths. Existing jobs keep the work_root already recorded in job.json.
     """
-    base = managed_work_base()
+    base = Path(base).expanduser().resolve() if base is not None else managed_work_base()
     timestamp = job_id[:15] if re.fullmatch(r"\d{8}-\d{6}.*", job_id) else "job"
     token = hashlib.sha256(job_id.encode("utf-8")).hexdigest()[:12]
     return base / f"{timestamp}-{token}"
@@ -605,8 +608,9 @@ def _existing_storage_path(path: Path) -> Path:
 
 
 def required_workspace_bytes(source: Path) -> int:
-    """Estimate a safe working allowance for extraction plus encoded domains."""
-    return max(20 * 1024**3, source.stat().st_size * 6)
+    """Estimate a starting allowance; still/gallery structures can exceed it."""
+    from .workspace import capacity_estimate
+    return capacity_estimate(source.stat().st_size)['workspace_bytes']
 
 
 def ensure_workspace_capacity(source: Path, work_root: Path) -> dict[str, int | str]:
@@ -648,8 +652,11 @@ def prune_completed_work(job_path: Path, job: dict[str, Any]) -> dict[str, Any]:
     work_root = Path(str(job.get("work_root") or "")).expanduser().resolve()
     legacy_default = (job_path.parent / "work").resolve()
     current_default = managed_job_work_root(str(job.get("id") or job_path.parent.name)).resolve()
+    recorded_base=job.get('managed_work_base')
+    recorded_default=(managed_job_work_root(str(job.get('id') or job_path.parent.name),Path(recorded_base))
+                      if recorded_base else None)
     managed = bool(job.get("managed_work_root", work_root == legacy_default))
-    if not managed or work_root not in {legacy_default, current_default} or not work_root.is_dir():
+    if not managed or work_root not in {legacy_default, current_default,recorded_default} or not work_root.is_dir():
         report["reason"] = "external-or-missing-workspace"
         return report
 
@@ -922,10 +929,16 @@ def _prepare_job_unlocked(
     paths = job_paths(job_id)
     plan = build_quick_compatibility_plan(source, paths["plan"])
     explicit_work = getattr(args, "work_dir", None)
+    selected_base=(None if explicit_work else
+                   Path(getattr(args,'work_root',None) or managed_work_base()).expanduser().resolve())
+    if explicit_work and getattr(args,'work_root',None):
+        raise PipelineError('Choose --work-root or --work-dir, not both')
+    if selected_base is not None and selected_base.exists() and not selected_base.is_dir():
+        raise PipelineError('Temporary work root must be a folder')
     work_root = (
         Path(explicit_work).expanduser().resolve()
         if explicit_work
-        else managed_job_work_root(job_id).resolve()
+        else managed_job_work_root(job_id,selected_base).resolve()
     )
     workspace_capacity = ensure_workspace_capacity(source, work_root)
     label = normalize_volume_label(getattr(args, "label", None) or f"{source.stem}_HEVC")
@@ -944,6 +957,7 @@ def _prepare_job_unlocked(
         "add_filename_tags": bool(getattr(args, "add_filename_tags", True)),
         "work_root": str(work_root),
         "managed_work_root": explicit_work is None,
+        "managed_work_base": str(selected_base) if explicit_work is None else None,
         "plan": str(paths["plan"].resolve()),
         "log": str(work_root / "run.log"),
         "label": label,
@@ -1051,6 +1065,11 @@ def _run_job_unlocked(job_path: Path, *, quiet: bool) -> int:
         "stdin": subprocess.DEVNULL,
         "check": False,
     }
+    process_temp=Path(job['work_root'])/'process-temp'
+    process_temp.mkdir(parents=True,exist_ok=True)
+    environment=os.environ.copy()
+    environment['TEMP']=str(process_temp);environment['TMP']=str(process_temp)
+    kwargs['env']=environment
     if quiet:
         kwargs["stdout"] = subprocess.DEVNULL
         kwargs["stderr"] = subprocess.DEVNULL
@@ -2381,6 +2400,7 @@ def add_conversion_options(parser: argparse.ArgumentParser, *, include_output: b
     parser.add_argument("--pipeline-depth", type=int, choices=range(1, 9), help="Parallel compact-audio title sets")
     parser.add_argument("--label", help="DVD volume label (ASCII, maximum 32 characters)")
     parser.add_argument("--work-dir", help="Resumable conversion workspace")
+    parser.add_argument("--work-root", help="Parent folder for automatic per-job temporary work (SSD recommended; also accepts an existing RAM disk)")
     parser.add_argument("--vlc-root", help="Stock VLC for UHD-BD; private patched VLC for legacy dvd-hevc")
     parser.add_argument("--name", help="Friendly job name")
     parser.add_argument("--resume", action="store_true", help="Reuse an explicit --work-dir after interruption")
@@ -2422,6 +2442,7 @@ def add_user_commands(commands: argparse._SubParsersAction[argparse.ArgumentPars
     add_output_options(p_queue)
     p_queue.add_argument("sources", nargs="+", help="ISO files or directories containing DVD ISOs")
     p_queue.add_argument("--output-dir", required=True, help="Destination directory for converted ISOs")
+    p_queue.add_argument("--work-root", help="Parent folder for temporary job work (SSD recommended)")
     p_queue.add_argument("--recursive", action="store_true", help="Search source directories recursively")
     p_queue.add_argument(
         "--no-filename-tags", "--no-output-tags",
@@ -2458,6 +2479,7 @@ def add_user_commands(commands: argparse._SubParsersAction[argparse.ArgumentPars
     add_output_options(p_watch)
     p_watch.add_argument("source_dir", help="Folder to keep watching for decrypted DVD ISOs")
     p_watch.add_argument("--output-dir", required=True, help="Destination folder for converted ISOs")
+    p_watch.add_argument("--work-root", help="Parent folder for temporary job work (SSD recommended)")
     p_watch.add_argument("--recursive", action="store_true", help="Watch subfolders too")
     p_watch.add_argument("--poll-seconds", type=float, default=15.0, help="Folder rescan interval (minimum 5 seconds)")
     p_watch.add_argument(

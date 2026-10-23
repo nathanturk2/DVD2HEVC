@@ -20,6 +20,7 @@ from .gui_support import (WorkflowUI, destination_path, source_path, path_text, 
 
 from .config import all_presets, remove_named_preset, resolve_preset, save_named_preset
 from .encoders import HEVC_ENCODERS, encoder_label
+from .workspace import configured_work_root,save_work_root,workspace_guidance
 from .subprocess_utils import hidden_subprocess_kwargs
 from .frontend import (
     ROOT,
@@ -81,6 +82,7 @@ WARN = "#b36b00"
 APP_USER_MODEL_ID = "DVD2HEVC.Project.GUI.1"
 
 FIELD_HELP = {
+    "Work folder": "Parent folder for temporary per-job files. Applies to new single-disc, batch and watched-folder jobs. An SSD is recommended. A mounted RAM disk can also be selected; its capacity must cover the estimate plus processing memory. Existing jobs keep their recorded work locations.",
     "Source ISO": "The decrypted DVD backup to convert. The source ISO is only read; DVD2HEVC never changes it.",
     "Output ISO": "Where the compact HEVC ISO will be written. Choose a different path from the source.",
     "Filename tags": "Automatically add (DVD) (HEVC) to generated output names for compatible library frontends. Turn this off to use a simple '- converted' name. Pasted and custom output names receive enabled tags too; the parent folder stays unchanged.",
@@ -358,6 +360,12 @@ class DVD2HEVCApp(WorkflowUI, tk.Tk):
         self.disc_format_var.trace_add('write', self._disc_output_changed)
         ttk.Label(source, text="UHD-BD output plays in stock VLC with Java. Patching VLC is not necessary.",
                   style="Muted.TLabel", wraplength=760).pack(anchor="w", pady=(3,4))
+        self.work_root_var=tk.StringVar(value=str(configured_work_root() or ''))
+        work_entry=self._path_row(source,'Work folder',self.work_root_var,self._browse_workspace)
+        work_entry.bind('<FocusOut>',lambda _event:self._save_workspace_preference(),add='+')
+        self.workspace_note=ttk.Label(source,text=workspace_guidance(),style='Muted.TLabel',wraplength=760)
+        self.workspace_note.pack(anchor='w',pady=(2,4))
+        self.source_var.trace_add('write',self._update_workspace_guidance)
         filename_tags = ttk.Checkbutton(
             source,
             text="Add source and output format tags to filenames",
@@ -507,7 +515,7 @@ class DVD2HEVCApp(WorkflowUI, tk.Tk):
         except (AttributeError, OSError, tk.TclError):
             pass
 
-    def _path_row(self, parent: ttk.Frame, label: str, variable: tk.StringVar, command: Callable[[], None]) -> None:
+    def _path_row(self, parent: ttk.Frame, label: str, variable: tk.StringVar, command: Callable[[], None]) -> ttk.Entry:
         row = ttk.Frame(parent, style="Panel.TFrame")
         row.pack(fill="x", pady=4)
         help_text = FIELD_HELP.get(label, f"Choose the {label.lower()} used by this operation.")
@@ -519,6 +527,7 @@ class DVD2HEVCApp(WorkflowUI, tk.Tk):
         browse.pack(side="left")
         self._attach_help(field_label, help_text)
         self._attach_help(entry, help_text)
+        return entry
 
     def _combo_field(self, parent: ttk.Frame, row: int, column: int, label: str, variable: tk.Variable, values: tuple[str, ...] | list[str], callback: Callable[..., None] | None = None) -> None:
         help_text = FIELD_HELP.get(label, f"Choose the {label.lower()} setting.")
@@ -783,6 +792,26 @@ class DVD2HEVCApp(WorkflowUI, tk.Tk):
             self.source_var.set(value)
             self._update_path_preview()
 
+    def _browse_workspace(self):
+        value=filedialog.askdirectory(title='Choose temporary work folder (SSD recommended)',parent=self)
+        if value:
+            self.work_root_var.set(value)
+            self._save_workspace_preference()
+
+    def _close_window(self):
+        self._save_workspace_preference()
+        return super()._close_window()
+
+    def _save_workspace_preference(self):
+        try:
+            save_work_root(path_text(self.work_root_var.get()))
+        except Exception as error:
+            self.busy_label.configure(text='Could not save work folder: '+str(error))
+
+    def _update_workspace_guidance(self,*_args):
+        try:self.workspace_note.configure(text=workspace_guidance(source_path(self.source_var.get(),'DVD')))
+        except (OSError,ValueError):self.workspace_note.configure(text=workspace_guidance())
+
     def _filename_tags_changed(self, *_args: Any) -> None:
         self._paths_changed()
 
@@ -858,6 +887,7 @@ class DVD2HEVCApp(WorkflowUI, tk.Tk):
         if hasattr(self,'vlc_status_label'):self._refresh_vlc_status()
 
     def _settings_namespace(self, source: Path, output: Path | None = None) -> argparse.Namespace:
+        self._save_workspace_preference()
         mode = self.override_mode_var.get()
         return argparse.Namespace(
             source=str(source), output=str(output) if output else None,
@@ -874,6 +904,7 @@ class DVD2HEVCApp(WorkflowUI, tk.Tk):
             stereo_audio_bitrate=self.stereo_rate_var.get(), mono_audio_bitrate=self.mono_rate_var.get(),
             audio_workers=int(self.audio_workers_var.get()), pipeline_depth=int(self.pipeline_depth_var.get()),
             label=self.label_var.get() or None, work_dir=None, vlc_root=None,
+            work_root=path_text(self.work_root_var.get()) or None,
             name=self.name_var.get() or None, resume=False,
             add_filename_tags=bool(self.filename_tags_var.get()),
         )

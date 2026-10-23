@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+- Add a saved GUI work-folder choice and `--work-root` for single, batch and
+  watched jobs, with workspace/RAM-disk estimates and large still-gallery guidance.
+- Author UHD-BD images on the work volume, then verify cross-volume copies
+  before atomic publication on the output drive. Track transfer progress and
+  preserve recoverable staging images if publication is interrupted.
+- Keep selected managed work paths eligible for cleanup after the preference
+  changes, and use stock VLC for UHD-BD watched folders.
+
 - Collect UHD-BD writer artifacts under `Conversion files`, with an optional
   shared support directory for library conversions and short per-output names.
 - Remove reproducible media from successful UHD-BD attempts; retain failed work

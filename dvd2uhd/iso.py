@@ -1,6 +1,7 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 """UDF 2.50 authoring with BD2HEVC's streaming Hadris tool and payload audit."""
 import hashlib
+import errno
 import json
 import re
 import shutil
@@ -87,7 +88,7 @@ def create(source,output,tool=None,label='DVD2UHD',progress=None,writer_progress
     output.parent.mkdir(parents=True,exist_ok=True)
     artifacts.mkdir(parents=True,exist_ok=True)
     needed=sum(p.stat().st_size for p in source.rglob('*') if p.is_file())+64*1024*1024
-    if shutil.disk_usage(output.parent).free<needed:raise OSError('Insufficient space for ISO')
+    if shutil.disk_usage(output.parent).free<needed:raise OSError(errno.ENOSPC,'Insufficient space for ISO',str(output))
     # Failed images remain for diagnosis; existing images are never replaced.
     with output.open('xb'):pass
     command=[tool,'create',source,'--output',output,'--volume-name',re.sub('[^A-Za-z0-9_-]','_',label)[:32] or 'DVD2UHD',

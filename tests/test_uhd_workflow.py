@@ -105,6 +105,18 @@ class UhdWorkflowTests(unittest.TestCase):
             result=uhd.author_uhd(source,output,work)
         self.assertTrue(result['passed']);self.assertTrue(output.is_file())
 
+    def test_ssd_staging_is_verified_and_removed_only_after_destination_commit(self):
+        root,source,output,work=self.fixtures()
+        def volumes(first,second):
+            return Path(first)!=work and work not in Path(first).parents
+        with patch('dvd2hevc_app.publication.same_volume',side_effect=volumes),\
+             patch.object(uhd,'stock_vlc_gate',return_value={'passed':True}):
+            result=uhd.author_uhd(source,output,work)
+        self.assertEqual(result['publication']['method'],'verified-copy-and-atomic-rename')
+        self.assertEqual(output.read_bytes(),b'verified-image')
+        self.assertFalse(Path(result['staging']).exists())
+        self.assertTrue(json.loads((work/'uhd-output.json').read_text())['passed'])
+
     def test_source_changed_during_authoring_does_not_publish(self):
         root,source,output,work=self.fixtures()
         def gate(*args):

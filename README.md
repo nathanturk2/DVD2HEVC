@@ -134,10 +134,47 @@ uses stock VLC and the included UDF writer instead.
 
 ## Work files and disk space
 
-UHD-BD writer logs, manifests, progress counters and unpublished images now stay
-in a single `Conversion files` folder beside the output, rather than appearing
-as numerous sidecars among the movies. For `author-uhd`, `--support-dir` selects
-one shared folder for a whole library; it must be on the output volume.
+Choose **Work folder** in the GUI to keep temporary files on a drive of your
+choice. The setting is saved and applies to new single-disc, batch and watched
+jobs. Existing jobs retain their original paths. An SSD is recommended for
+temporary work; the size of the improvement depends on the disc and hardware.
+One full 297-cell HEVC-DVD upgrade on 23 October 2026 took **15:37** with an
+external Toshiba HDD workspace and **11:41** with an internal Acer NVMe SSD
+workspace, including verified copy-back, cleanup and diagnostic archiving: **25% less time (1.34×
+throughput)**. Both runs passed full media and stock-VLC gates, and all 297
+transport-stream files matched byte for byte. The SSD run peaked at **22.3 GiB**
+of work files including its ISO. This is one same-disc comparison with normal
+OS caching, not a universal performance claim; CPU/GPU encoding may dominate
+other workflows.
+The final ISO can remain on a different HDD. UHD-BD images are authored and
+checked on the work drive, then copied to a private destination file, read back
+and SHA-256 checked before the final filename appears.
+
+The CLI accepts `--work-root 'D:\DVD2HEVC work'` for `auto`, `start`, `queue`
+and `watch-folder`. This creates separate managed job directories and prunes
+reproducible files after success. `--work-dir` remains the exact-path option for
+an explicit resumable workspace. `DVD2HEVC_WORK_ROOT` overrides the saved GUI
+preference when no command-line work root is given.
+
+An existing mounted RAM disk can be selected as the work folder. The GUI shows
+a starting allowance of **the larger of 32 GiB or 12 times the source ISO
+size**, plus **8 GiB of additional free RAM** for the converter and background
+work. For example, a 4 GiB ISO suggests 48 GiB of usable RAM-disk space and roughly 56 GiB
+free RAM before allocating it; an 8 GiB ISO suggests roughly 104 GiB free RAM.
+These are planning estimates, not allocations or measured exact requirements;
+allow filesystem/driver overhead as well. Still/gallery discs can exceed this
+size-based estimate substantially. One 1.4 GiB bonus-disc upgrade used about
+86 GiB of intermediates and produced a 22 GiB image: allow at least 120 GiB
+of workspace and roughly 128 GiB of free RAM for a RAM-disk run of that case.
+Measure the peak on an SSD before using a RAM disk for unfamiliar structures.
+No RAM-disk driver is installed. Volatile work is lost when the disk is
+unmounted or power is lost, so an SSD is preferable for reliable resume.
+
+UHD-BD writer logs, manifests and progress counters stay in a single
+`Conversion files` folder beside the output. Unpublished images use the work
+volume when it differs from the output volume; only a verified transfer uses
+temporary space on the destination. For `author-uhd`, `--support-dir` selects
+one shared diagnostics folder for a whole library; it must be on the output volume.
 After a successful conversion, reproducible temporary VOB/MKV/transport files
 are removed from that attempt's workspace. Verification records, navigation,
 logs and failed attempts remain. Resume rechecks the ISO against its recorded

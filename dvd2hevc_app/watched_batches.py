@@ -106,7 +106,7 @@ def _watch_namespace(watch: dict[str, Any], source: Path, output: Path, *, servi
         stereo_audio_bitrate=settings.get("stereo_audio_bitrate"),
         mono_audio_bitrate=settings.get("mono_audio_bitrate"),
         audio_workers=settings.get("audio_workers"), pipeline_depth=settings.get("pipeline_depth"),
-        label=watch.get("label"), work_dir=None, vlc_root=watch.get("vlc_root") or None,
+        label=watch.get("label"), work_dir=None,work_root=watch.get('work_root'), vlc_root=watch.get("vlc_root") or None,
         name=None, resume=False,
         add_filename_tags=bool(watch.get("add_filename_tags", True)),
     )
@@ -488,9 +488,12 @@ def create_watched_batch(
         raise services.PipelineError("Watched output folder must be different from the source folder")
     output.mkdir(parents=True, exist_ok=True)
     settings = services.resolve_conversion_settings(args)
-    vlc_root = services.find_patched_vlc_root(getattr(args, "vlc_root", None))
+    stock=settings.get('output_format')=='uhd-bd'
+    finder=services.find_stock_vlc_root if stock else services.find_patched_vlc_root
+    vlc_root = finder(getattr(args, "vlc_root", None))
     if vlc_root is None:
-        raise services.PipelineError("Patched VLC was not found; set it up before starting a watched batch")
+        raise services.PipelineError(('Stock VLC with BD-J' if stock else 'Patched VLC')+
+                                     ' was not found; set it up before starting a watched batch')
     services.WATCH_ROOT.mkdir(parents=True, exist_ok=True)
     for path in services.watched_batch_files():
         existing = services.try_read_watched_batch(path)
@@ -518,6 +521,7 @@ def create_watched_batch(
         "label": getattr(args, "label", None),
         "name_prefix": getattr(args, "name_prefix", None),
         "vlc_root": str(vlc_root), "settings": settings, "ledger": {},
+        "work_root": str(Path(getattr(args,'work_root',None) or services.managed_work_base()).expanduser().resolve()),
         "created_at": services.time.strftime("%Y-%m-%dT%H:%M:%S%z"),
     }
     watch["summary"] = services.watched_batch_summary(watch)

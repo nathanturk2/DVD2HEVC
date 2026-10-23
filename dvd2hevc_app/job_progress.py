@@ -557,7 +557,8 @@ def _uhd_output_progress(events):
     bounds = {'uhd-source-check':(80,81), 'uhd-author':(81,90),
               'uhd-audit':(90,94), 'uhd-author-iso':(94,96),
               'uhd-verify-iso':(96,98), 'uhd-stock-vlc':(98,99),
-              'uhd-source-stable':(99,99.5), 'uhd-complete':(99.5,99.9)}
+              'uhd-copy-output':(99,99.3),'uhd-copy-verify':(99.3,99.5),
+              'uhd-source-stable':(99.5,99.8), 'uhd-complete':(99.8,99.9)}
     value=0.0
     for event in events:
         if event.get('scope') != 'uhd-output': continue

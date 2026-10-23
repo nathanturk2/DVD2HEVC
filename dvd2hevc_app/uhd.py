@@ -164,6 +164,7 @@ def author_uhd(source, output, work, *, vlc_root=None, tsmuxer=None, udf_tool=No
     from dvd2uhd.author import author
     from dvd2uhd.audit import audit
     from dvd2uhd.iso import create, verify_manifest, sha256, support_directory
+    from .publication import publish_image,same_volume
     source, output, work = (Path(p).expanduser().resolve() for p in (source, output, work))
     if source == output or (source.is_dir() and source in output.parents):
         raise PipelineError('UHD-BD output must be separate from the source')
@@ -192,6 +193,12 @@ def author_uhd(source, output, work, *, vlc_root=None, tsmuxer=None, udf_tool=No
                      udf_tool_sha256=sha256(Path(tools['udf_tool'])), label=label)
     receipt_path = work / 'uhd-output.json'
     previous = json.loads(receipt_path.read_text(encoding='utf-8')) if receipt_path.is_file() else {}
+    def cleanup_staging():
+        staging=Path(previous.get('staging') or work/'no-staging').resolve()
+        if (staging.name=='image.part' and staging.parent.parent==work/'iso'
+                and re.fullmatch('[0-9a-f]{12}',staging.parent.name)):
+            try:staging.unlink(missing_ok=True)
+            except OSError as error:previous['staging_cleanup_error']=str(error)
     if output.exists():
         if previous.get('signature') != signature or previous.get('output') != str(output):
             raise PipelineError('Existing output is not this same verified UHD-BD job; it will not be overwritten')
@@ -206,6 +213,7 @@ def author_uhd(source, output, work, *, vlc_root=None, tsmuxer=None, udf_tool=No
             manifest['image']=str(output)
             write_json_atomic(manifest_path,manifest)
         if previous.get('passed'):
+            cleanup_staging()
             if not keep_intermediates:
                 previous['cleanup']=prune_uhd_intermediates(work,previous)
                 write_json_atomic(receipt_path,previous)
@@ -234,7 +242,10 @@ def author_uhd(source, output, work, *, vlc_root=None, tsmuxer=None, udf_tool=No
         write_json_atomic(receipt_path, previous)
         attempt=support/'attempts'/uuid.uuid4().hex[:12]
         attempt.mkdir(parents=True,exist_ok=False)
-        staging = attempt/'image.part'
+        stage_folder=attempt if same_volume(work,output.parent) else work/'iso'/attempt.name
+        stage_folder.mkdir(parents=True,exist_ok=True)
+        staging = stage_folder/'image.part'
+        previous['staging']=str(staging)
         _emit('uhd-author-iso')
         manifest = create(folder, staging, tool=tools['udf_tool'], label=label,
                           artifacts_dir=attempt,
@@ -245,21 +256,19 @@ def author_uhd(source, output, work, *, vlc_root=None, tsmuxer=None, udf_tool=No
         previous['stock_vlc_gate'] = gate
         previous['manifest'] = manifest
         write_json_atomic(receipt_path,previous)
-        if _source_signature(source, 'uhd-source-stable') != signature['source_sha256']:
-            raise PipelineError('Source changed during UHD-BD authoring; retained staging ISO')
+        def source_stable():
+            if _source_signature(source, 'uhd-source-stable') != signature['source_sha256']:
+                raise PipelineError('Source changed during UHD-BD authoring; retained staging ISO')
         # The output appears only after payload and stock-VLC gates pass.
         if output.exists(): raise PipelineError('Output appeared while authoring; retained verified staging ISO')
-        if os.name == 'nt':
-            os.rename(staging,output)  # Windows rename refuses an existing target.
-        else:
-            os.link(staging, output)
-            staging.unlink()
+        previous['publication']=publish_image(staging,output,attempt,progress=_emit,before_publish=source_stable)
         manifest['image'] = str(output)
         write_json_atomic(manifest_path, manifest)
     previous['passed'] = True
     previous['size'] = output.stat().st_size
     previous['finished_at'] = time.strftime('%Y-%m-%dT%H:%M:%S%z')
     write_json_atomic(receipt_path, previous)
+    cleanup_staging()
     if not keep_intermediates:
         previous['cleanup']=prune_uhd_intermediates(work,previous)
         write_json_atomic(receipt_path, previous)
