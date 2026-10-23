@@ -19,6 +19,7 @@ def main(argv=None):
     for opt in ("tsmuxer","ffmpeg","ffprobe","bdj-api"):build.add_argument("--"+opt,type=Path)
     build.add_argument("--max-cells",type=int,help="Debug only: partial disc, missing routes fail visibly")
     build.add_argument("--menus-only",action="store_true",help="Debug only: omit title media")
+    build.add_argument('--keep-intermediates',action='store_true',help='Keep duplicate mux work files for debugging')
     trace=sub.add_parser("trace",help="Run the BD-J navigator headlessly on an inspected DVD")
     trace.add_argument("source",type=Path);trace.add_argument("actions",nargs="*")
     trace.add_argument("--work",type=Path,default=Path("work/trace"))
@@ -40,7 +41,8 @@ def main(argv=None):
             print(json.dumps({k:v for k,v in r.items() if k not in ('files','independent_descriptors')},indent=2))
         elif args.command=="author":
             report=author(args.source,args.output,tsmuxer=args.tsmuxer,ffmpeg=args.ffmpeg,ffprobe=args.ffprobe,
-                          bdj_api=args.bdj_api,max_cells=args.max_cells,menus_only=args.menus_only)
+                          bdj_api=args.bdj_api,max_cells=args.max_cells,menus_only=args.menus_only,
+                          keep_intermediates=args.keep_intermediates)
             print(json.dumps({k:v for k,v in report.items() if k not in ('cells','joined_title_playlists')},indent=2))
         else:
             with Disc(args.source) as d:g=inspect(d)

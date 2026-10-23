@@ -229,11 +229,53 @@ class BranchingTests(unittest.TestCase):
         self.assertEqual(len(unique_cells(g)),2)
 
 class ContainerTests(unittest.TestCase):
+    def test_mux_install_moves_stream_without_altering_an_existing_hardlinked_disc(self):
+        from unittest.mock import patch
+        import os
+        from dvd2uhd.author import install_mux
+        for retain in (False,True):
+            with tempfile.TemporaryDirectory() as temporary:
+                root=Path(temporary);folder=root/'cell';bd=folder/'bd/BDMV';output=root/'disc'
+                for sub in ('CLIPINF','STREAM','PLAYLIST'):(bd/sub).mkdir(parents=True)
+                (bd/'index.bdmv').write_bytes(b'index')
+                (bd/'CLIPINF/00000.clpi').write_bytes(b'clpi')
+                (bd/'PLAYLIST/00000.mpls').write_bytes(b'playlist')
+                stream=bd/'STREAM/00000.m2ts';stream.write_bytes(b'new stream')
+                target=output/'BDMV/STREAM/00007.m2ts';target.parent.mkdir(parents=True);target.write_bytes(b'old stream')
+                clone=root/'other-disc.m2ts';os.link(target,clone)
+                with patch('dvd2uhd.author.run',return_value=''),\
+                     patch('dvd2uhd.author.bdmv.rename_playlist',return_value=b'playlist'),\
+                     patch('dvd2uhd.author.bdmv.primary_streams',return_value=[{'subtitle':[]}]):
+                    install_mux(folder,7,output,'tsmuxer',[],keep_intermediates=retain)
+                self.assertEqual(target.read_bytes(),b'new stream')
+                self.assertEqual(clone.read_bytes(),b'old stream')
+                self.assertEqual(stream.exists(),retain)
+
+    def test_successful_cell_scratch_is_retired_without_removing_audit_or_boundary_inputs(self):
+        from dvd2uhd.author import prune_cell_scratch
+        with tempfile.TemporaryDirectory() as temporary:
+            folder=Path(temporary)
+            for name in ('source.vob','audio-00.ac3','audio-00.frames.ac3','media.mkv','still.hevc','mux.meta','ffmpeg.log'):
+                (folder/name).write_bytes(b'kept-or-reproducible')
+            (folder/'bd/BDMV/STREAM').mkdir(parents=True)
+            (folder/'bd/BDMV/STREAM/00000.m2ts').write_bytes(b'duplicate')
+            prune_cell_scratch(folder)
+            self.assertTrue((folder/'source.vob').exists())
+            self.assertTrue((folder/'audio-00.ac3').exists())
+            self.assertTrue((folder/'ffmpeg.log').exists())
+            self.assertTrue((folder/'mux.meta').exists())
+            self.assertFalse((folder/'media.mkv').exists())
+            self.assertFalse((folder/'audio-00.frames.ac3').exists())
+            self.assertFalse((folder/'bd/BDMV/STREAM/00000.m2ts').exists())
+            prune_cell_scratch(folder,keep_audio=False)
+            self.assertFalse((folder/'audio-00.ac3').exists())
+            self.assertTrue((folder/'source.vob').exists())
+
     def test_still_asset_stays_bounded_and_audio_tail_is_silent(self):
         from dvd2uhd.author import still_padding_seconds
-        self.assertEqual(still_padding_seconds(3600,254,False,0),61.04)
-        self.assertEqual(still_padding_seconds(3600,10,False,0),11.04)
-        self.assertEqual(still_padding_seconds(3600,0,True,0),61)
+        self.assertEqual(still_padding_seconds(3600,254,False,0),4)
+        self.assertEqual(still_padding_seconds(3600,10,False,0),4)
+        self.assertEqual(still_padding_seconds(3600,0,True,0),4)
         self.assertEqual(still_padding_seconds(21657600,0,True,240.608),241.64)
         self.assertEqual(still_padding_seconds(3600,0,True,120),121)
         from dvd2uhd.author import still_silent_tail_ms

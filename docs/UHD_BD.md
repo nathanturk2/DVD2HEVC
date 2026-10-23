@@ -11,9 +11,12 @@ Writer logs and manifests stay under `Conversion files` beside the final image
 (`author-uhd --support-dir` can share one root across a library). When the work
 volume differs, the temporary ISO is written and checked there. A destination
 copy is independently SHA-256 checked and atomically published before the
-working image is removed. After successful publication, the author removes reproducible media
+working image is removed. Each successful clip mux retires duplicate MKV,
+elementary-video and mux-output copies immediately. Original source cells remain
+for the full audit; original AC-3 fragments remain until boundary repair planning
+finishes. After successful publication, remaining reproducible media is removed
 from its own attempt directories, retaining navigation, graphics, verification
-records and logs. Failed attempts remain available. ISO resume verifies every
+records and logs. Failed clips retain their scratch. ISO resume verifies every
 payload file against the saved manifest instead of requiring temporary copies.
 `author-uhd --keep-intermediates` opts out of successful-attempt pruning.
 
@@ -51,6 +54,10 @@ logical stream maps, title/PGC/program/cell commands and chapter targets are
 retained. Physical clips can be shared by separate logical editions. Compatible
 seamless cell runs become native joined playlists. BD-J clocks follow the DVD
 presentation independently of still padding and pause in the appropriate states.
+Static HEVC still assets have a four-second minimum and retain their original
+presentation and complete audio, plus a silent tail. The existing BD-J keepalive
+repeats only certified silent video at the end, preserving finite/infinite DVD
+waits without filling every gallery page with a minute of duplicate pictures.
 
 Mouse navigation follows VLC's DVD/libdvdnav behavior: hover highlights a button
 without running its command, including buttons marked for auto-action. A click
@@ -161,8 +168,8 @@ decode/navigation rather than subtitle pixel accuracy.
 - Caption artwork export to native PGS and real-disc regional colour-change
   coverage remain work items. Native seek/pause/chapter UOP enforcement is
   incomplete.
-- Gallery still padding can increase output size substantially. HEVC savings
-  do not guarantee that every UHD-BD image is smaller than its custom DVD.
+- Still assets retain enough repeated video for their original presentation,
+  audio and decoder startup; a UHD-BD image can remain larger than its custom DVD.
 - VLC acceptance does not certify a physical UHD-BD player. The current target
   is unmodified VLC with Java, not hardware certification.
 

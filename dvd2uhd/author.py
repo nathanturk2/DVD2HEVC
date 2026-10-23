@@ -173,7 +173,10 @@ def decoded_frame_hashes(path,ffmpeg,log):
 
 def still_padding_seconds(duration_ticks,still_seconds,infinite_still,audio_end):
     """Bounded native video with a silent tail; DVD wait is enforced by the VM."""
-    return max(60.0 if infinite_still else 1.0,duration_ticks/90000+min(still_seconds,60),audio_end)+(1 if infinite_still or still_seconds else 0)
+    # Keep the original presentation and all audio, followed by a silent tail.
+    # The existing BD-J keepalive holds that tail for finite/infinite DVD waits;
+    # writing the wait itself into every gallery page wastes substantial space.
+    return max(3.0,duration_ticks/90000,audio_end)+1.0
 
 
 def still_silent_tail_ms(probe,native_times):
@@ -187,7 +190,7 @@ def still_silent_tail_ms(probe,native_times):
     return max(0,round((native_times[1]-native_times[0])/45-max(ends,default=0)))
 
 
-def mux_cell(folder,index,output,ffmpeg,ffprobe,tsmuxer,duration_ticks=0,infinite_still=False,sequence_end=True,languages=None,still_seconds=0,subtitles=None,audio_recovery=None):
+def mux_cell(folder,index,output,ffmpeg,ffprobe,tsmuxer,duration_ticks=0,infinite_still=False,sequence_end=True,languages=None,still_seconds=0,subtitles=None,audio_recovery=None,keep_intermediates=False):
     src=folder/"source.vob"
     probe,diagnostics=probe_media(src,ffprobe)
     (folder/'source-probe-diagnostics.log').write_text(diagnostics)
@@ -224,7 +227,7 @@ def mux_cell(folder,index,output,ffmpeg,ffprobe,tsmuxer,duration_ticks=0,infinit
             short_presentation_ms=round(len(hashes)*1000*b/a)
             audio_end=max((float(s.get('duration',0))+float(s.get('start_time',0))-float(video.get('start_time',0)) for s in audio),default=0)
             # A bounded silent video tail can loop for any DVD still wait.
-            # Do not inflate a 254-second static menu into thousands of copies.
+            # Still wait duration belongs to the VM, not to the repeated asset.
             pad_seconds=still_padding_seconds(duration_ticks,still_seconds,infinite_still,audio_end)
             padding=[ffmpeg,"-nostdin","-hide_banner","-loglevel","warning","-y",
                      "-stream_loop","-1",'-t',str(pad_seconds),
@@ -326,7 +329,8 @@ def mux_cell(folder,index,output,ffmpeg,ffprobe,tsmuxer,duration_ticks=0,infinit
             subtitle_channels.append(dict(logical=logical,language=language))
     meta=folder/"mux.meta"
     meta.write_text("\n".join(lines)+"\n",encoding="utf-8")
-    template,data,crc_preservation=install_mux(folder,index,output,tsmuxer,[s['language'] for s in subtitle_channels],audio_inputs)
+    template,data,crc_preservation=install_mux(folder,index,output,tsmuxer,[s['language'] for s in subtitle_channels],audio_inputs,
+                                              keep_intermediates=keep_intermediates)
     return template,dict(video_codec=video["codec_name"],width=video["width"],height=video["height"],
                          fps=fps,audio_count=len(audio),audio_streams=audio_streams,
                          audio_formats=[(s['codec_name'],s.get('sample_rate'),s.get('channels')) for s in audio],
@@ -342,7 +346,7 @@ def mux_cell(folder,index,output,ffmpeg,ffprobe,tsmuxer,duration_ticks=0,infinit
                          short_presentation_ms=short_presentation_ms)
 
 
-def install_mux(folder,index,output,tsmuxer,subtitle_languages,audio_inputs=None):
+def install_mux(folder,index,output,tsmuxer,subtitle_languages,audio_inputs=None,*,keep_intermediates=False):
     """Mux prepared inputs and atomically replace only this physical clip."""
     folder=Path(folder);output=Path(output);meta=folder/'mux.meta'
     authored=folder/"bd"
@@ -382,7 +386,10 @@ def install_mux(folder,index,output,tsmuxer,subtitle_languages,audio_inputs=None
         # STREAM may be shared by hard link with a disposable test clone.
         # Replace atomically so remuxing cannot overwrite another disc's media.
         temporary=target.with_suffix(target.suffix+'.tmp')
-        shutil.copyfile(original,temporary);os.replace(temporary,target)
+        if sub=='STREAM' and not keep_intermediates and os.stat(original).st_dev==os.stat(target.parent).st_dev:
+            os.replace(original,temporary)
+        else:shutil.copyfile(original,temporary)
+        os.replace(temporary,target)
         if sub=="CLIPINF":
             backup=output/"BDMV/BACKUP"/sub/target.name
             backup.parent.mkdir(parents=True,exist_ok=True);shutil.copyfile(target,backup)
@@ -392,7 +399,27 @@ def install_mux(folder,index,output,tsmuxer,subtitle_languages,audio_inputs=None
     return template,data,changes
 
 
-def author(source,output,*,tsmuxer=None,ffmpeg=None,ffprobe=None,bdj_api=None,max_cells=None,menus_only=False,progress=None):
+def prune_cell_scratch(folder,*,keep_audio=True):
+    """Retire successful mux scratch, retaining the exact source for full audit.
+
+    Original AC-3 elementary files survive until cross-cell repair planning.
+    Failed muxes never reach this function; their inputs remain diagnosable.
+    """
+    folder=Path(folder).resolve();removed=0;size=0
+    media={'.vob','.mkv','.hevc','.h265','.m2v','.m2ts','.ts','.ac3','.eac3','.dts','.wav','.pcm'}
+    for directory,children,names in os.walk(folder,followlinks=False):
+        children[:]=[name for name in children if not (Path(directory)/name).is_symlink()
+                     and (Path(directory)/name).resolve().is_relative_to(folder)]
+        for name in names:
+            path=Path(directory)/name
+            if path==folder/'source.vob' or (keep_audio and path.parent==folder and re.fullmatch(r'audio-\d{2}\.ac3',name)):
+                continue
+            if path.suffix.lower() not in media or path.is_symlink() or not path.resolve().is_relative_to(folder):continue
+            current=path.stat().st_size;path.unlink();removed+=1;size+=current
+    return dict(files_removed=removed,logical_bytes_removed=size)
+
+
+def author(source,output,*,tsmuxer=None,ffmpeg=None,ffprobe=None,bdj_api=None,max_cells=None,menus_only=False,progress=None,keep_intermediates=False):
     source,output=Path(source).resolve(),Path(output).resolve()
     if output.exists():raise FileExistsError(f"Output must be new: {output}")
     if output==source or source.is_dir() and source in output.parents:
@@ -431,7 +458,8 @@ def author(source,output,*,tsmuxer=None,ffmpeg=None,ffprobe=None,bdj_api=None,ma
                 from .subtitle_controls import languages as subtitle_languages
                 template,media=mux_cell(folder,index,output,languages=audio_languages(graph,refs),subtitles=subtitle_languages(graph,refs),duration_ticks=max(c["duration"] for p,c in refs),
                                        infinite_still=any(c['still']==255 or c['number']==len(p['cells']) and p['still']==255 for p,c in refs),
-                                       still_seconds=max((c['still'] if c['still']<255 else 0)+(p['still'] if c['number']==len(p['cells']) and p['still']<255 else 0) for p,c in refs),**tools)
+                                       still_seconds=max((c['still'] if c['still']<255 else 0)+(p['still'] if c['number']==len(p['cells']) and p['still']<255 else 0) for p,c in refs),
+                                       keep_intermediates=keep_intermediates,**tools)
                 ordinals=media['audio_streams']
                 if set(ordinals)!={sid&7 for sid in details["audio_ids"]}:
                     raise FormatError("Audio packet identities do not match authored tracks")
@@ -441,6 +469,7 @@ def author(source,output,*,tsmuxer=None,ffmpeg=None,ffprobe=None,bdj_api=None,ma
                     c['native_subtitle_controls']=bool(media['subtitle_controls'])
                     c['presentation_ms']=c['duration']//90 or media['short_presentation_ms']
                 details.update(media);details.update(index=index,domain=key,pgcs=[p["key"] for p,c in refs])
+                if not keep_intermediates:details['scratch_cleanup']=prune_cell_scratch(folder)
                 report["cells"].append(details)
                 (output/"conversion-report.json").write_text(json.dumps(report,indent=2),encoding="utf-8")
                 if progress:progress(index+1,len(selected))
@@ -454,10 +483,16 @@ def author(source,output,*,tsmuxer=None,ffmpeg=None,ffprobe=None,bdj_api=None,ma
                     row=report['cells'][index];refs=selected[index][1]
                     template,media=mux_cell(work/f'cell-{index:05d}',index,output,
                         languages=audio_languages(graph,refs),subtitles=subtitle_languages(graph,refs),
-                        audio_recovery=recovery,duration_ticks=max(c['duration'] for p,c in refs),**tools)
+                        audio_recovery=recovery,duration_ticks=max(c['duration'] for p,c in refs),
+                        infinite_still=any(c['still']==255 or c['number']==len(p['cells']) and p['still']==255 for p,c in refs),
+                        still_seconds=max((c['still'] if c['still']<255 else 0)+(p['still'] if c['number']==len(p['cells']) and p['still']<255 else 0) for p,c in refs),
+                        keep_intermediates=keep_intermediates,**tools)
                     row.update(media)
                     for p,c in refs:
                         c['still_keepalive']=media['still_repeated'] and media['still_silent_tail_ms']>=750
+            if not keep_intermediates:
+                report['scratch_cleanup_after_audio_repairs']=[prune_cell_scratch(work/f'cell-{i:05d}',keep_audio=False)
+                                                               for i in range(len(selected))]
             bdmv.join_titles(output,graph,report)
             binary.model(graph,resources/"disc.bin")
             (output/"navigation.json").write_text(json.dumps(graph,indent=2),encoding="utf-8")

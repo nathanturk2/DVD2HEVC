@@ -74,8 +74,8 @@ class WorkspacePublicationTests(unittest.TestCase):
             args=[command,'source.iso','--work-root','D:/temp']
             if command in ('queue','watch-folder'):args+=['--output-dir','G:/out']
             self.assertEqual(build_parser().parse_args(args).work_root,'D:/temp')
-        self.assertEqual(capacity_estimate(4*GIB)['ram_disk_free_ram_bytes'],56*GIB)
-        self.assertEqual(capacity_estimate(1)['workspace_bytes'],32*GIB)
+        self.assertEqual(capacity_estimate(4*GIB)['ram_disk_free_ram_bytes'],32*GIB)
+        self.assertEqual(capacity_estimate(1)['workspace_bytes'],16*GIB)
 
     def test_saved_managed_root_still_prunes_after_default_location_changes(self):
         with tempfile.TemporaryDirectory() as temporary:

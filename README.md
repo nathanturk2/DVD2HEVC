@@ -145,7 +145,8 @@ throughput)**. Both runs passed full media and stock-VLC gates, and all 297
 transport-stream files matched byte for byte. The SSD run peaked at **22.3 GiB**
 of work files including its ISO. This is one same-disc comparison with normal
 OS caching, not a universal performance claim; CPU/GPU encoding may dominate
-other workflows.
+other workflows. That drive comparison predates the compact still/scratch
+changes described below.
 The final ISO can remain on a different HDD. UHD-BD images are authored and
 checked on the work drive, then copied to a private destination file, read back
 and SHA-256 checked before the final filename appears.
@@ -157,15 +158,27 @@ an explicit resumable workspace. `DVD2HEVC_WORK_ROOT` overrides the saved GUI
 preference when no command-line work root is given.
 
 An existing mounted RAM disk can be selected as the work folder. The GUI shows
-a starting allowance of **the larger of 32 GiB or 12 times the source ISO
+a starting allowance of **the larger of 16 GiB or 6 times the source ISO
 size**, plus **8 GiB of additional free RAM** for the converter and background
-work. For example, a 4 GiB ISO suggests 48 GiB of usable RAM-disk space and roughly 56 GiB
-free RAM before allocating it; an 8 GiB ISO suggests roughly 104 GiB free RAM.
+work. For example, a 4 GiB ISO suggests 24 GiB of usable RAM-disk space and roughly 32 GiB
+free RAM before allocating it; an 8 GiB ISO suggests roughly 56 GiB free RAM.
 These are planning estimates, not allocations or measured exact requirements;
-allow filesystem/driver overhead as well. Still/gallery discs can exceed this
-size-based estimate substantially. One 1.4 GiB bonus-disc upgrade used about
-86 GiB of intermediates and produced a 22 GiB image: allow at least 120 GiB
-of workspace and roughly 128 GiB of free RAM for a RAM-disk run of that case.
+allow filesystem/driver overhead as well. Unusual discs can exceed this
+size-based estimate. Temporary media is retired as each physical clip completes;
+the exact source cells remain until the full compressed-picture/audio audit
+finishes, and original AC-3 fragments remain until cross-cell repair planning.
+Static stills use a short native asset plus the existing BD-J silent-tail
+keepalive, retaining the original DVD wait and audio instead of writing the
+wait as a minute of repeated pictures on every gallery page.
+The 404-clip Mission: Impossible bonus-disc test on 23 October 2026 peaked at
+**7.5 GiB**, including the ISO; its final image fell from **21.9 GiB to 3.0 GiB**.
+The older run had retained **86.5 GiB** of intermediate media. The new run passed
+the full source-picture/audio, navigation, shared-clip and ISO payload audits,
+and all 404 graphics resources and 23 runtime classes matched the prior output.
+For that measured case, a **16 GiB usable RAM disk plus 8 GiB free for processing**
+is a reasonable starting allowance, about **24 GiB free RAM** before allocation,
+rather than the previous roughly 128 GiB estimate. This is one measured disc;
+the generic estimate is not a guaranteed upper bound.
 Measure the peak on an SSD before using a RAM disk for unfamiliar structures.
 No RAM-disk driver is installed. Volatile work is lost when the disk is
 unmounted or power is lost, so an SSD is preferable for reliable resume.
@@ -175,9 +188,11 @@ UHD-BD writer logs, manifests and progress counters stay in a single
 volume when it differs from the output volume; only a verified transfer uses
 temporary space on the destination. For `author-uhd`, `--support-dir` selects
 one shared diagnostics folder for a whole library; it must be on the output volume.
-After a successful conversion, reproducible temporary VOB/MKV/transport files
+Successful clip muxes retire duplicate MKV/elementary/transport work immediately.
+After a verified conversion, cached source VOBs and authored transport files
 are removed from that attempt's workspace. Verification records, navigation,
-logs and failed attempts remain. Resume rechecks the ISO against its recorded
+logs and failed clips' scratch remain. `author-uhd --keep-intermediates` retains
+all mux work for debugging. Resume rechecks the ISO against its recorded
 payload hashes, so it does not require those temporary media copies.
 Use `author-uhd --keep-intermediates` when retaining them for investigation.
 

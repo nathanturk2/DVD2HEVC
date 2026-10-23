@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- Retire duplicate clip media as authoring proceeds, retaining original cells
+  for the unchanged full media audit and AC-3 fragments for boundary repairs.
+- Keep silent DVD still waits in the BD-J VM instead of inflating each gallery
+  page with a minute of repeated compressed pictures. Retain the original
+  presentation/audio and a silent keepalive tail; lower workspace/RAM estimates.
 - Add a saved GUI work-folder choice and `--work-root` for single, batch and
   watched jobs, with workspace/RAM-disk estimates and large still-gallery guidance.
 - Author UHD-BD images on the work volume, then verify cross-volume copies

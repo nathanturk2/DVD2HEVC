@@ -30,7 +30,7 @@ def save_work_root(value):
 def capacity_estimate(source_bytes):
     # Includes multiple extracted/remuxed media copies and an SSD-authored ISO.
     # This is a planning allowance, not an exact prediction or an allocation.
-    storage=max(32*GIB,int(source_bytes)*12)
+    storage=max(16*GIB,int(source_bytes)*6)
     return dict(workspace_bytes=storage,ram_disk_free_ram_bytes=storage+8*GIB,
                 ram_headroom_bytes=8*GIB)
 
@@ -41,8 +41,8 @@ def workspace_guidance(source=None):
         return ('An SSD can substantially speed up file-heavy authoring. Allow about '
                 f"{estimate['workspace_bytes']/GIB:.0f} GiB of workspace. An existing RAM disk would need about "
                 f"{estimate['ram_disk_free_ram_bytes']/GIB:.0f} GiB of free RAM, including 8 GiB left for processing. "
-                'Starting estimate only: still/gallery discs can exceed 100 GiB of work. '
-                'Use an SSD until their peak has been measured.')
+                'Starting estimate only: unusual discs can exceed this allowance. '
+                'Measure unfamiliar discs on an SSD before using a RAM disk.')
     return ('An SSD can substantially speed up file-heavy authoring; choose its temporary-work folder here. '
             'Blank uses the saved/default location. An existing RAM disk also works; allow its capacity '
             'plus at least 8 GiB of free RAM for processing. RAM-disk work is lost when it is unmounted or power is lost.')

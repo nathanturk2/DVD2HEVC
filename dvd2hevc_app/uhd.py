@@ -232,6 +232,7 @@ def author_uhd(source, output, work, *, vlc_root=None, tsmuxer=None, udf_tool=No
             folder = work / ('bdmv-' + uuid.uuid4().hex[:12])
             author(source, folder, tsmuxer=tools['tsmuxer'], bdj_api=tools['bdj_api'],
                    ffmpeg=media_tools['ffmpeg'],ffprobe=media_tools['ffprobe'],
+                   keep_intermediates=keep_intermediates,
                    progress=lambda done,total: _emit('uhd-author', done,total))
         _emit('uhd-audit')
         audited = audit(folder, media=True, bdj_api=tools['bdj_api'],progress=lambda done,total: _emit('uhd-audit',done,total))
