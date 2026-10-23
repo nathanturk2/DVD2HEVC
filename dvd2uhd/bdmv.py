@@ -80,6 +80,47 @@ def playlist_times(data):
     return struct.unpack_from(">II",data,pos+12)
 
 
+def native_still_playlist(data):
+    """Hold a single play item's final decoded frame; leave its media untouched.
+
+    The DVD VM controls the finite/infinite wait and selects the next playlist.
+    Native still mode prevents EOF from closing VLC's interactive video output.
+    """
+    primary_streams(data)  # Bounded structural and single-angle validation.
+    start=int.from_bytes(data[8:12],'big')
+    if int.from_bytes(data[start+6:start+8],'big')!=1:
+        raise ValueError('Native DVD still requires an independent single-item playlist')
+    pos=start+10
+    if data[pos+31] not in (0,1,2):raise ValueError('Unknown MPLS still mode')
+    result=bytearray(data);result[pos+31]=2;result[pos+32:pos+34]=b'\0\0'
+    return bytes(result)
+
+
+def native_still_playlists(graph):
+    """Independent, unpadded DVD stills that need native decoder retention."""
+    wanted=set();references={}
+    for pgc in graph['pgcs']:
+        for index,cell in enumerate(pgc['cells']):
+            playlist=cell.get('playlist',cell.get('clip',-1))
+            if playlist<0:continue
+            references.setdefault(playlist,[]).append(cell)
+            wait=cell['still'] or (pgc['still'] if index==len(pgc['cells'])-1 else 0)
+            if wait and not cell.get('still_repeated',False):wanted.add(playlist)
+    for playlist in wanted:
+        if any(c.get('end_ms',0) or c.get('presentation_ms',c['duration']//90)<=0 for c in references[playlist]):
+            raise ValueError('Native DVD still requires independent cells with known presentation timing')
+    return sorted(wanted)
+
+
+def hold_native_stills(root,graph):
+    playlists=native_still_playlists(graph)
+    for playlist in playlists:
+        for prefix in ('','BACKUP/'):
+            path=Path(root)/('BDMV/'+prefix+f'PLAYLIST/{playlist:05d}.mpls')
+            path.write_bytes(native_still_playlist(path.read_bytes()))
+    return playlists
+
+
 def joined_playlist(sources,programs,connections=None,durations=None):
     """Reuse cell clips in logical PGC order, with original chapter marks."""
     items=[]

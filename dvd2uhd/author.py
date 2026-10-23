@@ -494,6 +494,7 @@ def author(source,output,*,tsmuxer=None,ffmpeg=None,ffprobe=None,bdj_api=None,ma
                 report['scratch_cleanup_after_audio_repairs']=[prune_cell_scratch(work/f'cell-{i:05d}',keep_audio=False)
                                                                for i in range(len(selected))]
             bdmv.join_titles(output,graph,report)
+            report['native_still_playlists']=bdmv.hold_native_stills(output,graph)
             binary.model(graph,resources/"disc.bin")
             (output/"navigation.json").write_text(json.dumps(graph,indent=2),encoding="utf-8")
             bdmv.bootstrap(output,template)

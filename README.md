@@ -19,6 +19,9 @@ The current development update also fixes native VLC **Disc Menu** selection
 leaving the movie running with its timeline hidden, and serializes asynchronous
 menu/movie service changes. Menu return retains the DVD resume position. See
 [release notes](docs/RELEASE_NOTES.md) for validation and remaining limits.
+Short still menus also retain VLC's live highlight output after the video ends,
+including Gladiator's audio setup and subtitle pages. This uses native Blu-ray
+still metadata and does not expand or reencode the original media.
 
 To rebuild a fixed UHD-BD from a retained HEVC-DVD backup, use a new output name:
 

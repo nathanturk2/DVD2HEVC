@@ -1,5 +1,21 @@
 # DVD2HEVC 0.2.0a3 development update, 23 October 2026
 
+- Keep hover highlighting alive in short DVD still menus, including Gladiator's
+  audio setup and both subtitle pages. Independent unpadded stills now use the
+  Blu-ray playlist's native infinite-still flag; the DVD VM retains control of
+  finite/infinite waits and navigation. The Xlet keeps the video output open.
+  No source video/audio is reencoded, replayed or expanded for this fix.
+- Metadata repair can update the paired primary/backup playlist still fields
+  along with the embedded runtime. Every byte outside the recorded metadata
+  allocations is independently checked unchanged, including all media bytes.
+
+The still-menu update passed live stock-VLC hover checks after waiting on all
+three affected Gladiator menu pages, page switching and Main Menu return.
+The regression suite now runs 305 tests: 304 passed, one optional source-disc
+test skipped. Native still tests cover finite/infinite cell waits, final-cell
+PGC waits, unaffected ordinary/repeated video, both MPLS copies and preservation
+of all other image bytes. These selected routes do not certify every disc menu.
+
 - Route VLC's native Disc Menu/title-0 selection into the original DVD root
   menu. Previously the persistent Xlet could continue the movie while VLC hid
   its timeline. Return to the movie restores its saved DVD cell and offset.
@@ -23,7 +39,7 @@ decode, not the exact pixels of BD-J overlays or every disc route.
 This update also includes the earlier SSD workspace, verified cross-volume
 publication, compact still-video and incremental temporary-media cleanup fixes.
 
-Local regression suite: 301 tests run, 300 passed and one optional source-disc
+Earlier menu-service regression suite: 301 tests run, 300 passed and one optional source-disc
 test skipped. Java service-event tests include delayed and reversed requests,
 failure/timeout handling, native menu routing, missing menus and DVD UOPs.
 

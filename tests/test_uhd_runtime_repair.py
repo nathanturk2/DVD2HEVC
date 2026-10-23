@@ -50,8 +50,9 @@ class RuntimeRepairTests(unittest.TestCase):
             def __init__(self,path):self.path=path;self.files=files
             def read(self,name,limit=None):
                 with Path(self.path).open('rb') as stream:
-                    parts=[]
-                    for offset,length in spans:stream.seek(offset);parts.append(stream.read(length))
+                    parts=[];remaining=files[name]['size']
+                    for offset,length in files[name]['extents']:
+                        stream.seek(offset);block=stream.read(min(length,remaining));parts.append(block);remaining-=len(block)
                 return b''.join(parts)
         context=patch('dvd2uhd.udf_reader.UdfImage',Reader);context.start();self.addCleanup(context.stop)
         context=patch('dvd2uhd.udf_validation.validate_udf',return_value={'verified':True});context.start();self.addCleanup(context.stop)
@@ -95,6 +96,25 @@ class RuntimeRepairTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError,'candidate changed'):
             patch_image(source,candidate,{self.entry:b'\xca\xfe\xba\xbefixed'},progress)
         self.assertEqual(source.read_bytes(),original)
+
+    def test_native_still_metadata_and_jar_patch_preserve_all_other_bytes(self):
+        from test_uhd_native_still import playlist
+        from dvd2uhd.bdmv import native_still_playlist
+        source,candidate,_=self.fixture()
+        from dvd2uhd.udf_reader import UdfImage
+        files=UdfImage(source).files;metadata=playlist()
+        for offset,prefix in ((4096,''),(8192,'BACKUP/')):
+            files['BDMV/'+prefix+'PLAYLIST/00036.mpls']=dict(size=len(metadata),extents=[(offset,len(metadata))])
+            with source.open('r+b') as stream:stream.seek(offset);stream.write(metadata)
+        files['BDMV/STREAM/00036.m2ts']=dict(size=128,extents=[(12288,128)])
+        original=source.read_bytes()
+        result=patch_image(source,candidate,{self.entry:b'\xca\xfe\xba\xbefixed'},native_still_playlists=[36])
+        self.assertFalse(result['all_non_jar_bytes_identical'])
+        self.assertTrue(result['all_unmodified_bytes_identical'] and result['media_bytes_identical'])
+        self.assertEqual(len(result['changed_files']),3)
+        self.assertEqual(source.read_bytes(),original)
+        self.assertEqual(UdfImage(candidate).read('BDMV/PLAYLIST/00036.mpls'),native_still_playlist(metadata))
+        self.assertEqual(candidate.read_bytes()[12288:12416],original[12288:12416])
 
 
 if __name__=='__main__':unittest.main()

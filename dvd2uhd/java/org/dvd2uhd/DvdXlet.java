@@ -133,6 +133,13 @@ public final class DvdXlet extends HComponent implements Xlet, UserEventListener
     // libbluray's JMF getMediaTime() advances even when its rate is zero;
     // getMediaNanoseconds() observes pause. Both are public JMF methods.
     private long position() {return player==null?0:player.getMediaNanoseconds()/1000000;}
+    private void presentationEnded(DiscModel.Cell c,long now) {
+        endMedia=c.presentation;endWall=now;ended=true;
+        // Native still mode keeps the final picture and live overlay output.
+        // stop() closes that output, freezing highlights despite working clicks.
+        boolean dvdStill=c.still!=0 || (nav.cell==nav.pgc.cells.length && nav.pgc.still!=0);
+        if(!c.repeated && !dvdStill)player.stop();
+    }
     public void receiveServiceContextEvent(ServiceContextEvent event) {
         if(event.getServiceContext()!=titleContext)return;
         if(event instanceof NormalContentEvent) {
@@ -349,11 +356,7 @@ public final class DvdXlet extends HComponent implements Xlet, UserEventListener
                             // The asset can contain repeated still pictures for
                             // decoder startup. DVD timing remains the IFO timing.
                             if(!ended && !clock.paused() && c.end==0 && c.presentation>0 && t>=c.presentation) {
-                                endMedia=c.presentation;endWall=now;ended=true;
-                                // Repeated still frames remain visually identical. Keep the
-                                // decoder alive until the native padded asset ends; stopping
-                                // it here can discard the first picture before presentation.
-                                if(!c.repeated)player.stop();
+                                presentationEnded(c,now);
                             }
                             if(ended && stillUntil<0) {
                                 int still=c.still!=0?c.still:(nav.cell==nav.pgc.cells.length?nav.pgc.still:0);

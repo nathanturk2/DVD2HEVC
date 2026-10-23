@@ -47,11 +47,11 @@ def _identity(path):
     return value.st_size,value.st_mtime_ns,value.st_ino
 
 
-def patch_image(source,candidate,replacements,progress=None):
-    """Copy once, patch only allocated JAR bytes, then verify from the SSD copy.
+def patch_image(source,candidate,replacements,progress=None,*,native_still_playlists=()):
+    """Copy once and patch the runtime plus optional native-still metadata.
 
     A masked SHA-256 from the original read must match an independent candidate
-    read with just the JAR spans masked. This checks every non-JAR byte without
+    read with just the changed resource spans masked. This checks all other bytes without
     a second full HDD read. The original image is never written.
     """
     from .udf_reader import UdfImage
@@ -63,27 +63,40 @@ def patch_image(source,candidate,replacements,progress=None):
     if entry['size']>256*1024**2:raise ValueError('Runtime JAR exceeds the bounded repair limit')
     original=udf.read('BDMV/JAR/00000.jar',limit=256*1024**2)
     jar,record=repaired_jar(original,replacements)
-    spans=[];remaining=len(jar);consumed=0
-    for offset,length in entry['extents']:
-        take=min(length,remaining)
-        if take:spans.append((offset,offset+take,consumed));consumed+=take;remaining-=take
-    if remaining or any(lo<0 or hi>original_identity[0] for lo,hi,_ in spans):
-        raise ValueError('Runtime JAR allocation is outside the image')
+    changes={'BDMV/JAR/00000.jar':jar}
+    from .bdmv import native_still_playlist
+    for playlist in native_still_playlists:
+        if type(playlist)!=int or not 0<=playlist<2000:raise ValueError('Invalid native still playlist ID')
+        for prefix in ('','BACKUP/'):
+            name='BDMV/'+prefix+f'PLAYLIST/{playlist:05d}.mpls'
+            if udf.files[name]['size']>4*1024**2:raise ValueError('Still playlist exceeds bounded metadata size')
+            old=udf.read(name,limit=4*1024**2);new=native_still_playlist(old)
+            if old!=new:changes[name]=new
+    spans=[]
+    for name,data in changes.items():
+        remaining=len(data);consumed=0;entry=udf.files[name]
+        if len(data)!=entry['size']:raise ValueError('Runtime repair cannot change resource allocation')
+        for offset,length in entry['extents']:
+            take=min(length,remaining)
+            if take:spans.append((offset,offset+take,consumed,data));consumed+=take;remaining-=take
+        if remaining:raise ValueError('Runtime resource allocation is incomplete')
+    if any(lo<0 or hi>original_identity[0] for lo,hi,_,_ in spans):
+        raise ValueError('Runtime resource allocation is outside the image')
     ordered=sorted(spans)
     if any(a[1]>b[0] for a,b in zip(ordered,ordered[1:])):raise ValueError('Overlapping runtime JAR allocations')
     for name,other in udf.files.items():
-        if name=='BDMV/JAR/00000.jar':continue
+        if name in changes:continue
         remaining=other['size']
         for offset,length in other['extents']:
             count=min(length,remaining);remaining-=count
-            if count and any(max(offset,lo)<min(offset+count,hi) for lo,hi,_ in spans):
+            if count and any(max(offset,lo)<min(offset+count,hi) for lo,hi,_,_ in spans):
                 raise ValueError('Runtime JAR allocation aliases another payload file')
     candidate.parent.mkdir(parents=True,exist_ok=True)
     if shutil.disk_usage(candidate.parent).free<original_identity[0]+64*1024**2:
         raise OSError(28,'Insufficient workspace for runtime repair')
     def masked(block,at):
         result=bytearray(block)
-        for lo,hi,_ in spans:
+        for lo,hi,_,_ in spans:
             begin=max(lo,at)-at;end=min(hi,at+len(block))-at
             if begin<end:result[begin:end]=b'\0'*(end-begin)
         return result
@@ -91,9 +104,9 @@ def patch_image(source,candidate,replacements,progress=None):
     with source.open('rb') as reader,candidate.open('xb') as writer:
         while block:=reader.read(8*1024**2):
             original_hash.update(block);expected.update(masked(block,at));patched=bytearray(block)
-            for lo,hi,jar_at in spans:
+            for lo,hi,resource_at,data in spans:
                 begin=max(lo,at);end=min(hi,at+len(block))
-                if begin<end:patched[begin-at:end-at]=jar[jar_at+begin-lo:jar_at+end-lo]
+                if begin<end:patched[begin-at:end-at]=data[resource_at+begin-lo:resource_at+end-lo]
             writer.write(patched);at+=len(block)
             if progress:progress('uhd-runtime-copy',at,original_identity[0])
         writer.flush();os.fsync(writer.fileno())
@@ -106,10 +119,10 @@ def patch_image(source,candidate,replacements,progress=None):
             actual.update(masked(block,at));final_hash.update(block);at+=len(block)
             if progress:progress('uhd-runtime-verify',at,original_identity[0])
     if at!=original_identity[0] or actual.digest()!=expected.digest():
-        raise ValueError('Runtime candidate changed bytes outside the JAR allocation')
+        raise ValueError('Runtime candidate changed bytes outside the allowed resource allocations')
     changed=UdfImage(candidate)
-    if changed.files!=udf.files or changed.read('BDMV/JAR/00000.jar',limit=256*1024**2)!=jar:
-        raise ValueError('Runtime repair changed UDF allocation or JAR bytes')
+    if changed.files!=udf.files or any(changed.read(name,limit=len(data))!=data for name,data in changes.items()):
+        raise ValueError('Runtime repair changed UDF allocation or resource bytes')
     descriptors=validate_udf(candidate)
     # Independent per-file hashes support ordinary ISO resume verification.
     rows=[]
@@ -126,8 +139,11 @@ def patch_image(source,candidate,replacements,progress=None):
             rows.append(dict(path=name,size=file_entry['size'],sha256=digest.hexdigest()))
     if _identity(source)!=original_identity:raise ValueError('Original image changed during verification')
     if _identity(candidate)!=candidate_identity:raise ValueError('Runtime candidate changed during verification')
-    record.update(all_non_jar_bytes_identical=True,non_jar_sha256=actual.hexdigest(),
+    record.update(all_non_jar_bytes_identical=len(changes)==1,all_unmodified_bytes_identical=True,
+                  media_bytes_identical=True,changed_files=sorted(changes),
+                  native_still_playlists=sorted(set(native_still_playlists)),unchanged_bytes_sha256=actual.hexdigest(),
                   original_image_sha256=original_hash.hexdigest(),image_sha256=final_hash.hexdigest(),
                   original_identity=list(original_identity),independent_descriptors=descriptors,
                   manifest=dict(image=str(candidate),verified=True,bytes=at,files=rows))
+    if len(changes)==1:record['non_jar_sha256']=actual.hexdigest()
     return record

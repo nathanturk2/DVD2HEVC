@@ -59,6 +59,13 @@ presentation and complete audio, plus a silent tail. The existing BD-J keepalive
 repeats only certified silent video at the end, preserving finite/infinite DVD
 waits without filling every gallery page with a minute of duplicate pictures.
 
+Independent unpadded cells with a DVD still wait use the MPLS native infinite
+still mode. VLC retains the final decoded frame and its interactive overlay
+while the DVD VM enforces the original presentation, finite/infinite wait and
+cell commands. This prevents hover highlights freezing when a very short menu
+video ends. Primary and backup playlists are updated together; original media
+and playlist in/out times are unchanged.
+
 Mouse navigation follows VLC's DVD/libdvdnav behavior: hover highlights a button
 without running its command, including buttons marked for auto-action. A click
 selects and executes once. For overlapping rectangles, the closest centre wins;
@@ -86,8 +93,10 @@ can remain after resume seeks even while audio/video decoding continues.
 
 `dvd2uhd.runtime_repair` provides a bounded runtime-only repair primitive for
 existing unsigned images. It requires replacement classes to fit the original
-JAR allocation, checks every untouched JAR resource, and compares independent
-masked SHA-256 reads to prove all bytes outside that allocation unchanged.
+JAR allocation, checks every untouched JAR resource, and can change the native
+still fields of explicitly selected primary/backup playlists. Independent
+masked SHA-256 reads prove all bytes outside the recorded metadata allocations
+unchanged, including every video/audio byte.
 It creates a separate candidate; normal startup and publication gates must
 still be applied by its caller. It never edits the original ISO in place.
 
