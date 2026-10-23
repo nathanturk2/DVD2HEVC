@@ -9,7 +9,7 @@ from PIL import Image
 p=argparse.ArgumentParser(description=__doc__)
 p.add_argument('vlc_root',type=Path);p.add_argument('disc',type=Path)
 p.add_argument('--output',type=Path,default=Path('work/libvlc-capture'))
-p.add_argument('--actions',default='down,activate',help='Comma separated navigation, menu-ready, pgc-ready=key, subtitles-ready=count, seek=ms, wait=seconds, pause, play, audio=index, subtitle=index/none, chapter=index actions')
+p.add_argument('--actions',default='down,activate',help='Comma separated navigation, menu-ready, pgc-ready=key, subtitles-ready=count, seek=ms, wait=seconds, pause, play, audio=index, subtitle=index/none, chapter=index, title=index, menu (popup), top-menu (native title 0) actions')
 p.add_argument('--java-home',type=Path)
 p.add_argument('--seek-ms',type=int,help='Seek after navigation actions, for cell transition tests')
 p.add_argument('--wait',type=float,default=3,help='Initial wait in seconds')
@@ -30,9 +30,26 @@ if a.java_home:os.environ['JAVA_HOME']=str(a.java_home.resolve())
 if not a.child:
     # VLC uses a different Windows C runtime from CPython. Supply environment
     # at process creation so its getenv snapshot receives BD-J settings.
+    previous=[a.output/name for name in ('libbluray.log','vlc.log','result.json') if (a.output/name).exists()]
+    if previous:
+        import uuid
+        history=a.output/'previous-runs'/uuid.uuid4().hex[:12];history.mkdir(parents=True)
+        for path in previous:os.replace(path,history/path.name)
+    child=subprocess.Popen([sys.executable,*sys.argv,'--child'],env=os.environ.copy(),
+                           **({'creationflags':subprocess.CREATE_NO_WINDOW} if os.name=='nt' else {'start_new_session':True}))
     try:
-        sys.exit(subprocess.run([sys.executable,*sys.argv,'--child'],env=os.environ.copy(),timeout=a.timeout).returncode)
+        sys.exit(child.wait(timeout=a.timeout))
     except subprocess.TimeoutExpired:
+        # Windows venv launchers create another Python process. Kill the tree
+        # before its launcher exits, otherwise a timed-out VLC/JVM can survive.
+        if os.name=='nt':
+            subprocess.run(['taskkill','/PID',str(child.pid),'/T','/F'],stdout=subprocess.DEVNULL,
+                           stderr=subprocess.DEVNULL,creationflags=subprocess.CREATE_NO_WINDOW)
+        else:
+            import signal
+            try:os.killpg(child.pid,signal.SIGKILL)
+            except ProcessLookupError:pass
+        child.wait()
         checkpoint=a.output/'result.json'
         try:result=json.loads(checkpoint.read_text())
         except (OSError,ValueError):result={}
@@ -185,6 +202,10 @@ try:
   with lock:frame_hash=hashlib.sha256(latest[0]).hexdigest() if latest[0] else None
   observations.append(dict(action=action,time_ms=get_time(mp),frames=latest[1],audio_samples=audio_samples[0],state=state(mp),
                            dvd_navigation=last_navigation,still_keepalive_count=still_keepalive_count,
+                           title=api('libvlc_media_player_get_title',C.c_int,[ptr])(mp),
+                           title_count=api('libvlc_media_player_get_title_count',C.c_int,[ptr])(mp),
+                           seekable=bool(api('libvlc_media_player_is_seekable',C.c_int,[ptr])(mp)),
+                           pausable=bool(api('libvlc_media_player_can_pause',C.c_int,[ptr])(mp)),
                            length_ms=api('libvlc_media_player_get_length',C.c_int64,[ptr])(mp),
                            position=api('libvlc_media_player_get_position',C.c_float,[ptr])(mp),
                            audio_track=api('libvlc_audio_get_track',C.c_int,[ptr])(mp),audio_tracks=audio_tracks(),
@@ -202,6 +223,9 @@ try:
    while True:
     current,menu_event=navigation_events()
     ready=(bool(menu_event) and menu_event.startswith('MENU buttons=')) if action=='menu-ready' else current==action[10:]
+    if ready and action.startswith('pgc-ready=T:'):
+     ready=(api('libvlc_media_player_get_title',C.c_int,[ptr])(mp)==1
+            and api('libvlc_media_player_get_length',C.c_int64,[ptr])(mp)>0)
     if state(mp)==7:raise RuntimeError('libVLC error while waiting for '+action)
     if ready:break
     if time.monotonic()>=deadline:raise RuntimeError('DVD readiness deadline: '+action)
@@ -223,6 +247,8 @@ try:
    if not 0<=ordinal<len(tracks):raise ValueError('Audio ordinal unavailable')
    api('libvlc_audio_set_track',C.c_int,[ptr,C.c_int])(mp,tracks[ordinal]['id'])
   elif action.startswith('chapter='):api('libvlc_media_player_set_chapter',None,[ptr,C.c_int])(mp,int(action[8:]))
+  elif action=='top-menu':api('libvlc_media_player_set_title',None,[ptr,C.c_int])(mp,0)
+  elif action.startswith('title='):api('libvlc_media_player_set_title',None,[ptr,C.c_int])(mp,int(action[6:]))
   elif action.startswith('subtitle='):
    choice=action[9:];tracks=[t for t in subtitle_tracks() if t['id']>=0]
    if choice=='none':track=-1

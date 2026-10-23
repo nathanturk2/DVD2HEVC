@@ -76,6 +76,21 @@ Native audio/subtitle changes obey PGC and timed-PCI UOP restrictions, and
 unavailable subtitle slots are rejected. Other native-control UOP coverage is
 incomplete.
 
+The Xlet observes public service-selection events as well as popup-menu keys.
+VLC's native Disc Menu action selects the top-menu service directly; this must
+also enter the DVD root menu. Playlist playback waits for asynchronous service
+selection to complete, and returning to the movie restores the saved DVD cell
+and offset. Missing or prohibited root menus restore movie playback. VLC hides
+its native timeline for interactive menu services; a brief time-readout hold
+can remain after resume seeks even while audio/video decoding continues.
+
+`dvd2uhd.runtime_repair` provides a bounded runtime-only repair primitive for
+existing unsigned images. It requires replacement classes to fit the original
+JAR allocation, checks every untouched JAR resource, and compares independent
+masked SHA-256 reads to prove all bytes outside that allocation unchanged.
+It creates a separate candidate; normal startup and publication gates must
+still be applied by its caller. It never edits the original ISO in place.
+
 At an unambiguous compatible seamless AC-3 boundary, a successor's original
 prefix completes the preceding cell's final access unit. Every occurrence of
 a shared clip must agree on that successor. Provenance records both source
@@ -95,6 +110,14 @@ Cancellation uses the existing worker-tree policy. The default startup gate
 does not substitute for interactive whole-disc playback.
 
 ## Commercial-disc corpus
+
+The review library now contains authored UHD-BD images for all 117 catalogued
+HEVC-DVD backups (23 October 2026). This inventory is broader than the detailed
+13-disc audit snapshot below and does not certify every route. Current focused
+regressions additionally exercise native Disc Menu, popup return, seek/chapter
+controls and paused menu entry on Gladiator, Taken and Terminator 2. The latter
+prohibits Resume in its DVD menu; tests use its original Play button instead
+and check that native title selection cannot bypass that prohibition.
 
 | Disc | Physical clips | Titles | PGCs |
 | --- | ---: | ---: | ---: |
@@ -173,5 +196,6 @@ decode/navigation rather than subtitle pixel accuracy.
 - VLC acceptance does not certify a physical UHD-BD player. The current target
   is unmodified VLC with Java, not hardware certification.
 
-The encoding catalogue's 117 legacy images are separate evidence. This change
-does not relabel them as 117 tested UHD-BD outputs.
+The 117-image output inventory, automated media/publication checks and selected
+interactive routes are separate levels of evidence. None establishes exhaustive
+playback certification for all 117 discs.

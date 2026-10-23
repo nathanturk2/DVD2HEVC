@@ -5,6 +5,7 @@ import java.awt.*;
 import java.awt.event.*;
 import java.io.*;
 import java.util.*;
+import java.util.concurrent.atomic.AtomicInteger;
 import javax.tv.xlet.*;
 import javax.media.*;
 import javax.tv.locator.Locator;
@@ -18,7 +19,7 @@ import org.dvb.ui.DVBBufferedImage;
 import org.havi.ui.*;
 
 /** Original DVD video plus timed SPU/highlight graphics, using public BD-J APIs. */
-public final class DvdXlet extends HComponent implements Xlet, UserEventListener, ControllerListener, Runnable, MouseListener, MouseMotionListener {
+public final class DvdXlet extends HComponent implements Xlet, UserEventListener, ControllerListener, Runnable, MouseListener, MouseMotionListener, ServiceContextListener {
     private XletContext context;
     private HScene scene;
     private Navigator nav;
@@ -50,6 +51,11 @@ public final class DvdXlet extends HComponent implements Xlet, UserEventListener
     private long debugSeek=-1;
     private int debugSubtitle=-1;
     private int requestedService=-1;
+    private volatile int activeService=-1;
+    private volatile String serviceFailure;
+    private volatile boolean servicePending;
+    private final AtomicInteger externalService=new AtomicInteger(-1);
+    private long serviceDeadline;
     private ServiceContext titleContext;
 
     public void initXlet(XletContext context) throws XletStateChangeException {
@@ -66,6 +72,7 @@ public final class DvdXlet extends HComponent implements Xlet, UserEventListener
             for(int k:new int[]{461,403,404,405,406,KeyEvent.VK_PAGE_UP,KeyEvent.VK_PAGE_DOWN}) keys.addKey(k);
             EventManager.getInstance().addUserEventListener(this,keys);
             titleContext=ServiceContextFactory.getInstance().getServiceContext(context);
+            titleContext.addListener(this);
         } catch(Exception e) {throw new XletStateChangeException(e.toString());}
     }
     public synchronized void startXlet() {
@@ -85,6 +92,7 @@ public final class DvdXlet extends HComponent implements Xlet, UserEventListener
     public synchronized void destroyXlet(boolean unconditional) {
         alive=false;
         EventManager.getInstance().removeUserEventListener(this);
+        if(titleContext!=null)titleContext.removeListener(this);
         if(player!=null)player.close();
         if(scene!=null) {scene.remove(this);HSceneFactory.getInstance().dispose(scene);}
     }
@@ -125,24 +133,79 @@ public final class DvdXlet extends HComponent implements Xlet, UserEventListener
     // libbluray's JMF getMediaTime() advances even when its rate is zero;
     // getMediaNanoseconds() observes pause. Both are public JMF methods.
     private long position() {return player==null?0:player.getMediaNanoseconds()/1000000;}
-    private void play() throws Exception {
+    public void receiveServiceContextEvent(ServiceContextEvent event) {
+        if(event.getServiceContext()!=titleContext)return;
+        if(event instanceof NormalContentEvent) {
+            try {
+                Locator locator=titleContext.getService().getLocator();
+                int service=new BDLocator(locator.toExternalForm()).getTitleNumber();
+                if(servicePending && service==requestedService)activeService=service;
+                else if(service==0 || service==1)externalService.set(service);
+            } catch(Exception error) {serviceFailure=error.toString();}
+        } else if(event instanceof SelectionFailedEvent && servicePending)serviceFailure="BD-J service selection failed";
+    }
+    private void externalService() {
+        int service=externalService.getAndSet(-1);
+        if(service<0)return;
+        activeService=requestedService=service;servicePending=false;serviceFailure=null;
+        if(nav==null || nav.pgc==null)return;
+        // VLC's Disc Menu button selects Top Menu directly, without sending a
+        // popup key. The persistent Xlet must also enter the DVD's menu domain.
+        if(service==0 && nav.pgc.title) {
+            int mask=nav.pgc.uops | (graphics==null?0:graphics.uops(nav.currentMillis));
+            if((mask&(1<<11))!=0 || !nav.rootMenu(nav.currentMillis)) {
+                // A forbidden or absent DVD menu must leave the movie at its
+                // current cell/offset, even though VLC already selected title 0.
+                nav.resumeMillis=nav.currentMillis;nav.serial++;
+                log("TOP MENU unavailable");return;
+            }
+            log("TOP MENU "+nav.pgc.key);
+        } else if(service==1 && !nav.pgc.title) {
+            int mask=nav.pgc.uops | (graphics==null?0:graphics.uops(nav.currentMillis));
+            if((mask&(1<<16))!=0) {
+                nav.resumeMillis=nav.currentMillis;nav.serial++;
+                log("TITLE resume unavailable");return;
+            }
+            if(!nav.resumeTitle())nav.selectTitle(1);
+            log("TITLE "+nav.pgc.key);
+        }
+    }
+    private boolean selectService(int service) throws Exception {
+        if(servicePending) {
+            if(serviceFailure!=null)throw new IOException(serviceFailure);
+            if(activeService!=requestedService) {
+                if(System.nanoTime()>=serviceDeadline)throw new IOException("BD-J service selection timed out");
+                return false;
+            }
+            servicePending=false;log("SERVICE ready="+activeService);
+        }
+        if(requestedService==service && activeService==service)return true;
+        if(player!=null) {player.removeControllerListener(this);player.close();player=null;loadedPlaylist=-1;}
+        menu=null;clearImages();
+        activeService=-1;serviceFailure=null;requestedService=service;servicePending=true;
+        serviceDeadline=System.nanoTime()+10000000000L;
+        titleContext.select(new Locator[]{new BDLocator(null,service,-1)});
+        log("SERVICE request="+service);
+        return false;
+    }
+    private boolean play() throws Exception {
         DiscModel.Cell c=nav.currentCell();
         // Interactive menu services make stock VLC deliberately suppress time,
         // duration and position. A persistent Xlet selects the movie service
         // for DVD title domains and top-menu service for DVD menu domains.
         // Both reference the same BDJO/app, so VM registers/resume survive.
         int service=nav.pgc.title?1:0;
-        if(requestedService!=service) {
-            titleContext.select(new Locator[]{new BDLocator(null,service,-1)});
-            requestedService=service;log("SERVICE "+service);
-        }
+        // Selection completes on libbluray's loader thread, which can call
+        // startXlet(). Yield our monitor until its NormalContentEvent arrives;
+        // otherwise the old title's timeline can overwrite the new playlist.
+        if(!selectService(service))return false;
         boolean same=c!=null && player!=null && loadedPlaylist==c.playlist && loadedPgc.equals(nav.pgc.key);
         boolean continuation=same && nav.continuation && loadedCell+1==nav.cell && position()>=c.start-100;
         boolean consecutive=c!=null && nav.continuation && loadedPgc.equals(nav.pgc.key) && loadedCell+1==nav.cell;
         long boundary=consecutive?(same?c.start-loadedStart:loadedDuration):0;
         if(!same && player!=null) {player.removeControllerListener(this);player.close();player=null;}
         menu=null;clearImages();selected=nav.vm.sprm[8]>>10;forcedActivated=Long.MIN_VALUE;ended=false;endWall=-1;endMedia=0;stillUntil=-1;lastAudio=-1;lastNativeAudio=-1;lastDvdSubtitle=-1;previousPosition=-1;
-        if(c==null) {graphics=null;log("STOP");return;}
+        if(c==null) {graphics=null;log("STOP");return true;}
         if(c.playlist<0) throw new IOException("DVD cell was not authored: "+nav.pgc.key+":"+nav.cell);
         graphics=new DiscModel.Graphics(getClass().getResourceAsStream("/"+c.graphics));
         subtitles.enter(graphics,boundary,consecutive);
@@ -152,7 +215,7 @@ public final class DvdXlet extends HComponent implements Xlet, UserEventListener
             nav.resumeMillis=0;loadedCell=nav.cell;
             log((nav.mediaSynchronized?"SYNC ":continuation?"CONTINUE ":"SEEK ")+nav.pgc.key+" cell="+nav.cell+" playlist="+c.playlist);
             if(!nav.mediaSynchronized && !continuation && !lifecyclePaused)player.start();
-            audio();subtitleControl();repaint();return;
+            audio();subtitleControl();repaint();return true;
         }
         BDLocator locator=new BDLocator(null,1,c.playlist);
         log("PLAY "+nav.pgc.key+" cell="+nav.cell+" playlist="+c.playlist);
@@ -164,7 +227,9 @@ public final class DvdXlet extends HComponent implements Xlet, UserEventListener
         player.addControllerListener(this);
         if(c.start+nav.resumeMillis>0) {player.setMediaTime(new Time((c.start+nav.resumeMillis)/1000.0));nav.resumeMillis=0;}
         loadedPlaylist=c.playlist;loadedPgc=nav.pgc.key;loadedCell=nav.cell;
-        audio();subtitleControl();if(!lifecyclePaused)player.start();repaint();
+        audio();subtitleControl();
+        if(!lifecyclePaused)player.start();
+        repaint();return true;
     }
     private void audio() throws Exception {
         if(player==null || nav.pgc==null) return;
@@ -250,6 +315,7 @@ public final class DvdXlet extends HComponent implements Xlet, UserEventListener
             while(alive) {
                 synchronized(this) {
                     if(failure==null && !lifecyclePaused) {
+                        externalService();
                         nav.tick();
                         if(nav.serial!=serial) {
                             // A DVD title's pre-commands may divert through mandatory
@@ -259,9 +325,9 @@ public final class DvdXlet extends HComponent implements Xlet, UserEventListener
                                 if(debugSeek>=0) {nav.resumeMillis=debugSeek;debugSeek=-1;}
                                 if(debugSubtitle>=0) {nav.vm.sprm[2]=debugSubtitle;debugSubtitle=-1;}
                             }
-                            serial=nav.serial;play();
+                            if(play())serial=nav.serial;
                         }
-                        if(!nav.stopped) {
+                        if(nav.serial==serial && !nav.stopped) {
                             long absolute=position();
                             DiscModel.Cell present=nav.currentCell();
                             boolean seek=previousPosition>=0 && Math.abs(absolute-previousPosition)>1500;
@@ -374,7 +440,7 @@ public final class DvdXlet extends HComponent implements Xlet, UserEventListener
         nav.button(b.command,selected);
     }
     public synchronized void userEventReceived(UserEvent e) {
-        if(e.getType()!=KeyEvent.KEY_PRESSED || failure!=null)return;
+        if(e.getType()!=KeyEvent.KEY_PRESSED || failure!=null || servicePending || nav.serial!=serial)return;
         try {
             int k=e.getCode();
             log("KEY "+k);

@@ -1,3 +1,32 @@
+# DVD2HEVC 0.2.0a3 development update, 23 October 2026
+
+- Route VLC's native Disc Menu/title-0 selection into the original DVD root
+  menu. Previously the persistent Xlet could continue the movie while VLC hid
+  its timeline. Return to the movie restores its saved DVD cell and offset.
+- Wait for asynchronous BD-J service selection before starting the next
+  playlist. Reject stale input during the transition and report selection
+  failure or timeout explicitly.
+- Reset elapsed cell time on navigation. A DVD without a root menu now ignores
+  the user menu request; prohibited native menu requests restore the movie.
+- Add an allocation-preserving runtime repair primitive. It replaces existing
+  Java classes in an unsigned JAR, verifies every other JAR entry and proves
+  every ISO byte outside that allocation unchanged. This avoids remuxing media
+  for a navigation-only repair. Separate verified candidates protect originals.
+
+Stock-VLC regressions cover native Disc Menu, popup return, seeks, chapters and
+paused menu entry on Gladiator, Taken and Terminator 2. The timeline is hidden
+in menu domains and restored for movie domains. VLC can briefly hold its time
+readout after a resume seek while decoding continues; this update does not
+claim to remove that player behavior. Memory callbacks verify navigation and
+decode, not the exact pixels of BD-J overlays or every disc route.
+
+This update also includes the earlier SSD workspace, verified cross-volume
+publication, compact still-video and incremental temporary-media cleanup fixes.
+
+Local regression suite: 301 tests run, 300 passed and one optional source-disc
+test skipped. Java service-event tests include delayed and reversed requests,
+failure/timeout handling, native menu routing, missing menus and DVD UOPs.
+
 # DVD2HEVC 0.2.0a2 alpha
 
 - Match VLC/libdvdnav DVD mouse behavior: hovering selects without executing

@@ -78,6 +78,10 @@ public final class SelfTest {
         check(!nav.pgc.title && nav.cell==1,"root menu stores title position");
         check(nav.resumeTitle() && nav.pgc==pgc && nav.cell==2 && nav.resumeMillis==375,"menu Escape resumes exact cell offset");
         check(nav.vm.sprm[7]==2 && nav.vm.sprm[8]==3<<10,"resume restores chapter and highlight state");
+        nav.currentMillis=999;nav.chapter(1);
+        check(nav.currentMillis==0,"new chapter cannot inherit the previous cell elapsed time");
+        disc.pgcs.remove(root.key);
+        check(!nav.rootMenu(400) && nav.pgc==pgc && !nav.stopped,"absent DVD menu leaves title playback intact");
         // SPU with no STOP_DISPLAY carries into the next cell, then a clear
         // packet ends it. Seeking never carries a picture into a new cell.
         // Construct empty GXF3 through the same public reader as real discs.

@@ -4,7 +4,7 @@
 already-decrypted DVD ISOs from MPEG-2 to HEVC, preserving the original menus,
 extras, chapters, shared footage and audio/subtitle choices.
 
-**0.2.0a2 alpha: UHD-BD output with VLC-style mouse navigation.** The DVD virtual machine runs
+**0.2.0a3 development: UHD-BD output with VLC-style navigation.** The DVD virtual machine runs
 in BD-J inside a BDMV/UDF 2.50 image. **Stock VLC with Java can play it; patching
 VLC is not necessary.** The explicit legacy HEVC DVD option remains available
 for its private patched player.
@@ -14,6 +14,11 @@ Gladiator. Hover highlights; a click activates once. Original shaped highlight
 bitmaps and directional auto-action are preserved. Existing UHD-BD images need
 their embedded BD-J runtime refreshed; updating the application alone does not
 change an already authored ISO.
+
+The current development update also fixes native VLC **Disc Menu** selection
+leaving the movie running with its timeline hidden, and serializes asynchronous
+menu/movie service changes. Menu return retains the DVD resume position. See
+[release notes](docs/RELEASE_NOTES.md) for validation and remaining limits.
 
 To rebuild a fixed UHD-BD from a retained HEVC-DVD backup, use a new output name:
 

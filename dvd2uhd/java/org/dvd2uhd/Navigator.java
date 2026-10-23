@@ -37,7 +37,7 @@ public final class Navigator {
         for(DiscModel.Title t:disc.titles) if(t.vts==vts && t.local==n) return t;
         throw new IllegalStateException("DVD VTS title missing: "+vts+":"+n);
     }
-    private DiscModel.Pgc menu(int vts,int kind) {
+    private DiscModel.Pgc menuOrNull(int vts,int kind) {
         String lang=""+(char)(vm.sprm[0]>>8)+(char)(vm.sprm[0]&255);
         DiscModel.Pgc fallback=null;
         for(DiscModel.Pgc p:disc.pgcs.values()) {
@@ -46,8 +46,12 @@ public final class Navigator {
                 if(fallback==null) fallback=p;
             }
         }
-        if(fallback==null) throw new IllegalStateException("DVD menu missing: "+vts+":"+kind);
         return fallback;
+    }
+    private DiscModel.Pgc menu(int vts,int kind) {
+        DiscModel.Pgc result=menuOrNull(vts,kind);
+        if(result==null)throw new IllegalStateException("DVD menu missing: "+vts+":"+kind);
+        return result;
     }
     private DiscModel.Pgc menuNumber(int vts,int n) {
         String lang=""+(char)(vm.sprm[0]>>8)+(char)(vm.sprm[0]&255);
@@ -77,7 +81,7 @@ public final class Navigator {
         program=n;playCell(pgc.programs[n-1]);
     }
     private void playCell(int n) {
-        continuation=false;mediaSynchronized=false;resumeMillis=0;
+        continuation=false;mediaSynchronized=false;resumeMillis=0;currentMillis=0;
         if(n>pgc.cells.length) { post();return; }
         if(n<1) throw new IllegalStateException("Invalid DVD cell "+n);
         cell=n;
@@ -151,10 +155,12 @@ public final class Navigator {
         transitions=0;DiscModel.Title t=title(vm.sprm[4]);
         setTitle(t,Math.max(1,Math.min(t.pgc.length,vm.sprm[7]+delta)),false);
     }
-    public void rootMenu(long millis) {
+    public boolean rootMenu(long millis) {
+        DiscModel.Pgc target=menuOrNull(pgc.vts,3);
+        if(target==null)return false;
         transitions=0;
         if(pgc.title) {currentMillis=millis;saveResume(0);}
-        enter(menu(pgc.vts,3),1,true);
+        enter(target,1,true);return true;
     }
     /** DVD menu Escape resumes the saved title without rerunning pre-commands. */
     public boolean resumeTitle() {

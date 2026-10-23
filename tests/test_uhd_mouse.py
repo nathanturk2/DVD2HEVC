@@ -30,6 +30,10 @@ class MouseInputTests(unittest.TestCase):
                                      'org.dvd2uhd.MouseInputTest'], **options)
             self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
             self.assertIn('BD-J mouse input tests passed', result.stdout)
+            result = subprocess.run(['java', '-Djava.awt.headless=true', '-cp', cp,
+                                     'org.dvd2uhd.ServiceSwitchTest'], **options)
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            self.assertIn('BD-J service selection tests passed', result.stdout)
 
 
 if __name__ == '__main__':

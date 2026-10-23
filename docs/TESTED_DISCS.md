@@ -1,6 +1,6 @@
 # Tested DVD collection
 
-The current UHD-BD author/navigation corpus contains **13 commercial DVD backups**; see [UHD_BD.md](UHD_BD.md) for titles, counts, selected stock-VLC tests and limits. The 117-image catalogue below is older **legacy HEVC DVD conversion evidence**, not 117 certified UHD-BD outputs.
+As of 23 October 2026, all **117 catalogued HEVC-DVD backups have authored UHD-BD images** in the local review library. This is an output inventory, not certification of every menu, subtitle or edition. The earlier detailed **13-disc** audit/navigation corpus remains documented in [UHD_BD.md](UHD_BD.md); its aggregate picture/audio counts apply to that subset. The latest focused menu/timeline regressions cover Gladiator, Taken and Terminator 2 in stock VLC.
 
 
 Snapshot: 30 September 2026. The maintainer's Celsus **Converted Backups** collection contains **117 eligible converted DVD images**. The list below records the converted/test collection, including bonus discs and TV discs; it does not certify every menu, subtitle or edition.
