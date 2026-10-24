@@ -50,9 +50,11 @@ public final class MouseInputTest {
         x.mousePressed(event(x,MouseEvent.MOUSE_PRESSED,90,20));
         check(nav.vm.get(0)==2 && nav.vm.sprm[8]==1<<10,"outside retains highlight without activation");
         menu.buttons[0]=button(10,70,0);menu.buttons[1]=button(50,70,1);
+        x.mouseExited(event(x,MouseEvent.MOUSE_EXITED,90,20));
         x.mouseMoved(event(x,MouseEvent.MOUSE_MOVED,60,20));
         check(nav.vm.sprm[8]==2<<10,"overlap chooses nearest centre rather than first rectangle");
         menu.buttons[1]=button(10,70,1);
+        x.mouseExited(event(x,MouseEvent.MOUSE_EXITED,90,20));
         x.mouseMoved(event(x,MouseEvent.MOUSE_MOVED,60,20));
         check(nav.vm.sprm[8]==1<<10,"equal distance chooses first button");
         x.mouseMoved(event(x,MouseEvent.MOUSE_MOVED,10,10));

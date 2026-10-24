@@ -55,22 +55,29 @@ retained. Physical clips can be shared by separate logical editions. Compatible
 seamless cell runs become native joined playlists. BD-J clocks follow the DVD
 presentation independently of still padding and pause in the appropriate states.
 Static HEVC still assets have a four-second minimum and retain their original
-presentation and complete audio, plus a silent tail. The existing BD-J keepalive
-repeats only certified silent video at the end, preserving finite/infinite DVD
-waits without filling every gallery page with a minute of duplicate pictures.
+presentation and complete audio. Native still retention preserves finite/infinite
+DVD waits without filling every gallery page with a minute of duplicate pictures.
 
-Independent unpadded cells with a DVD still wait use the MPLS native infinite
+Independent cells with a DVD still wait, including repeated-picture assets, use the MPLS native infinite
 still mode. VLC retains the final decoded frame and its interactive overlay
 while the DVD VM enforces the original presentation, finite/infinite wait and
 cell commands. This prevents hover highlights freezing when a very short menu
 video ends. Primary and backup playlists are updated together; original media
 and playlist in/out times are unchanged.
+This also avoids repeated tail seeks that could blank/resize VLC's output or
+destabilize a language-selection screen. Still timers remain controlled by the
+DVD VM, and ordinary motion clips retain native end-of-playback handling.
 
 Mouse navigation follows VLC's DVD/libdvdnav behavior: hover highlights a button
 without running its command, including buttons marked for auto-action. A click
 selects and executes once. For overlapping rectangles, the closest centre wins;
 ties use the first button and rectangle edges are inclusive. Moving outside all
 buttons retains the highlight. Arrow-key navigation still honors DVD auto-action.
+An unchanged mouse position does not overwrite directional selection. Still
+graphics redraw only when their visible picture, selection, activation colour,
+menu or output dimensions change; timed subtitle appearance/disappearance remains
+checked on every VM tick. Bulk pixel uploads and a bounded 16 MiB least-recently
+used image cache preserve the original SPU masks, colours and highlight shapes.
 See libdvdnav's `mouse_select`/`mouse_activate` in
 [highlight.c](https://code.videolan.org/videolan/libdvdnav/-/blob/6.1.1/src/highlight.c)
 and VLC's `EventMouse` in
@@ -181,6 +188,13 @@ in stock VLC. Memory callbacks omit BD-J overlays, so those callbacks prove
 decode/navigation rather than subtitle pixel accuracy.
 
 ## Known limits
+
+Tiny HEVC menu cells retain their original compressed pictures and audio. If
+the muxed playlist ends with the short video rather than the full DVD audio
+presentation, authoring corrects its OUT time. The final HEVC delimiter is
+made visible to VLC's parser using existing transport bytes, so delayed video
+frames appear during the audio. Existing-image repair preserves file allocation,
+picture/audio data and timestamps and verifies all other image bytes unchanged.
 
 - Eight Benjamin Button bonus-disc AC-3 boundaries have conflicting or
   nonseamless successors. DTS/E-AC-3 boundary reconstruction is unfinished.

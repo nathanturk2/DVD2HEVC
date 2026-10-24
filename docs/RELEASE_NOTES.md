@@ -1,4 +1,41 @@
-# DVD2HEVC 0.2.0a3 development update, 23 October 2026
+# DVD2HEVC 0.2.0a3 development update, 25 October 2026
+
+- Hold repeated-picture DVD stills natively instead of repeatedly seeking a
+  short silent tail. Voyager Season 4 Disc 1's language screen could blank,
+  resize or crash VLC while navigating. Primary/backup MPLS still flags now
+  retain the decoded picture and live overlay without those seeks.
+- Let mouse and directional input alternate. Duplicate moves from a stationary
+  pointer cannot undo keyboard selection; pending service changes reject stale
+  pointer input as well as stale keys.
+- Redraw static overlays only when their visible state changes. Timed subtitle
+  and highlight changes still use the normal VM tick. Upload pixels in bulk
+  and retain language highlights in a bounded 16 MiB LRU pixel cache, preserving
+  source subpicture masks, palettes, regional colour changes and button shapes.
+- Reopen a drained native player when DVD commands loop to the same playlist.
+  Reusing an EOF player's torn-down input could leave Voyager's subsequent
+  main-menu loop black. Native-held pictures retain their existing live player.
+- Preserve the full original audio on independently authored short-video menu
+  cells. Voyager's 40-second main-menu audio was already present in the media,
+  but its playlist exposed only 20 milliseconds. Extend the primary/backup
+  playlist OUT time to the original DVD cell duration where that mismatch is
+  present. Existing images can receive this metadata repair without remuxing.
+- Let VLC drain very short HEVC pictures while their original audio continues.
+  Reuse the final access-unit delimiter after the sequence-end marker, or safe
+  existing transport stuffing, without changing compressed picture/audio data,
+  packet addresses, timestamps or file size. This avoids a blank menu caused
+  by delayed video decoding. Repair verification checks every unchanged image
+  byte and the exact replacement transport packets.
+- Canonicalize fully transparent overlay pixels to zero ARGB. Hidden palette
+  RGB must not leak into the native compositor; Voyager's menu could otherwise
+  show coloured blocks below the final episode button.
+- Add tests using Voyager's nine-language directional links, mixed input,
+  original command activation, unchanged-pointer refreshes, exact SPU pixels,
+  still redraw suppression and timed picture/activation expiry. The suite runs
+  313 tests: 312 passed and one optional original-disc test skipped. Stock VLC
+  navigation checks cover language selection and two subsequent main-menu
+  loops with continuing audio. These checks do not certify every disc route.
+
+## Earlier 23 October changes
 
 - Wait for native playback completion before advancing ordinary DVD video.
   The BD-J media clock can start ahead of VLC's buffered presentation; using

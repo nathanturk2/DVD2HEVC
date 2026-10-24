@@ -1,4 +1,4 @@
-"""Replace BD-J classes without changing any media or UDF allocation."""
+"""Repair BD-J/transport metadata without changing pictures, audio or allocation."""
 import copy
 import hashlib
 import io
@@ -47,7 +47,7 @@ def _identity(path):
     return value.st_size,value.st_mtime_ns,value.st_ino
 
 
-def patch_image(source,candidate,replacements,progress=None,*,native_still_playlists=()):
+def patch_image(source,candidate,replacements,progress=None,*,native_still_playlists=(),audio_presentations=None,terminal_delimiter_clips=()):
     """Copy once and patch the runtime plus optional native-still metadata.
 
     A masked SHA-256 from the original read must match an independent candidate
@@ -72,6 +72,15 @@ def patch_image(source,candidate,replacements,progress=None,*,native_still_playl
             if udf.files[name]['size']>4*1024**2:raise ValueError('Still playlist exceeds bounded metadata size')
             old=udf.read(name,limit=4*1024**2);new=native_still_playlist(old)
             if old!=new:changes[name]=new
+    from .bdmv import audio_presentation_playlist
+    for playlist,millis in (audio_presentations or {}).items():
+        if type(playlist)!=int or not 0<=playlist<2000:raise ValueError('Invalid audio presentation playlist ID')
+        for prefix in ('','BACKUP/'):
+            name='BDMV/'+prefix+f'PLAYLIST/{playlist:05d}.mpls'
+            if udf.files[name]['size']>4*1024**2:raise ValueError('Audio presentation playlist exceeds metadata limit')
+            old=changes.get(name) or udf.read(name,limit=4*1024**2)
+            new=audio_presentation_playlist(old,millis)
+            if old!=new:changes[name]=new
     spans=[]
     for name,data in changes.items():
         remaining=len(data);consumed=0;entry=udf.files[name]
@@ -80,12 +89,30 @@ def patch_image(source,candidate,replacements,progress=None,*,native_still_playl
             take=min(length,remaining)
             if take:spans.append((offset,offset+take,consumed,data));consumed+=take;remaining-=take
         if remaining:raise ValueError('Runtime resource allocation is incomplete')
+    transport={}
+    from .transport import terminal_delimiter_edits,MAX_SHORT_CLIP
+    for clip in sorted(set(terminal_delimiter_clips)):
+        if type(clip)!=int or not 0<=clip<2000:raise ValueError('Invalid terminal delimiter clip ID')
+        name=f'BDMV/STREAM/{clip:05d}.m2ts';entry=udf.files[name]
+        if entry['size']>MAX_SHORT_CLIP:raise ValueError('Short transport exceeds bounded repair limit')
+        edits=terminal_delimiter_edits(udf.read(name,limit=MAX_SHORT_CLIP))
+        if not edits:continue
+        transport[name]=[offset for offset,_ in edits]
+        for begin,data in edits:
+            logical=0;consumed=0
+            for offset,length in entry['extents']:
+                length=min(length,entry['size']-logical)
+                lo=max(begin,logical);hi=min(begin+len(data),logical+length)
+                if hi>lo:
+                    spans.append((offset+lo-logical,offset+hi-logical,lo-begin,data));consumed+=hi-lo
+                logical+=length
+            if consumed!=len(data):raise ValueError('Transport packet allocation is incomplete')
     if any(lo<0 or hi>original_identity[0] for lo,hi,_,_ in spans):
         raise ValueError('Runtime resource allocation is outside the image')
     ordered=sorted(spans)
     if any(a[1]>b[0] for a,b in zip(ordered,ordered[1:])):raise ValueError('Overlapping runtime JAR allocations')
     for name,other in udf.files.items():
-        if name in changes:continue
+        if name in changes or name in transport:continue
         remaining=other['size']
         for offset,length in other['extents']:
             count=min(length,remaining);remaining-=count
@@ -123,6 +150,11 @@ def patch_image(source,candidate,replacements,progress=None,*,native_still_playl
     changed=UdfImage(candidate)
     if changed.files!=udf.files or any(changed.read(name,limit=len(data))!=data for name,data in changes.items()):
         raise ValueError('Runtime repair changed UDF allocation or resource bytes')
+    with candidate.open('rb') as reader:
+        for lo,hi,resource_at,data in spans:
+            reader.seek(lo)
+            if reader.read(hi-lo)!=data[resource_at:resource_at+hi-lo]:
+                raise ValueError('Runtime repair changed expected resource/transport bytes')
     descriptors=validate_udf(candidate)
     # Independent per-file hashes support ordinary ISO resume verification.
     rows=[]
@@ -139,11 +171,13 @@ def patch_image(source,candidate,replacements,progress=None,*,native_still_playl
             rows.append(dict(path=name,size=file_entry['size'],sha256=digest.hexdigest()))
     if _identity(source)!=original_identity:raise ValueError('Original image changed during verification')
     if _identity(candidate)!=candidate_identity:raise ValueError('Runtime candidate changed during verification')
-    record.update(all_non_jar_bytes_identical=len(changes)==1,all_unmodified_bytes_identical=True,
-                  media_bytes_identical=True,changed_files=sorted(changes),
+    record.update(all_non_jar_bytes_identical=len(changes)==1 and not transport,all_unmodified_bytes_identical=True,
+                  media_bytes_identical=not transport,compressed_media_identical=True,transport_delimiter_packets=transport,
+                  changed_files=sorted(set(changes)|set(transport)),
                   native_still_playlists=sorted(set(native_still_playlists)),unchanged_bytes_sha256=actual.hexdigest(),
+                  audio_presentations=audio_presentations or {},
                   original_image_sha256=original_hash.hexdigest(),image_sha256=final_hash.hexdigest(),
                   original_identity=list(original_identity),independent_descriptors=descriptors,
                   manifest=dict(image=str(candidate),verified=True,bytes=at,files=rows))
-    if len(changes)==1:record['non_jar_sha256']=actual.hexdigest()
+    if len(changes)==1 and not transport:record['non_jar_sha256']=actual.hexdigest()
     return record

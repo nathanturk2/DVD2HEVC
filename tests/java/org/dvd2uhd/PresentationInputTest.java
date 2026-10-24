@@ -6,10 +6,11 @@ import javax.media.*;
 
 /** Buffered video must finish through the native decoder's completion event. */
 public final class PresentationInputTest implements InvocationHandler {
-    private int stops;
+    private int stops,state=Controller.Started;
     public Object invoke(Object proxy,Method method,Object[] args) {
         if(method.getName().equals("stop"))stops++;
         if(method.getName().equals("getMediaNanoseconds"))return Long.valueOf(17530000000L);
+        if(method.getName().equals("getState"))return Integer.valueOf(state);
         return null;
     }
     private static void set(DvdXlet x,String name,Object value)throws Exception {
@@ -33,6 +34,10 @@ public final class PresentationInputTest implements InvocationHandler {
         check(fake.stops==0 && !(Boolean)get(x,"ended") && nav.cell==1,"IFO timer must not discard buffered ordinary video");
         x.controllerUpdate(new EndOfMediaEvent(player,Controller.Started,Controller.Prefetched,Controller.Prefetched,new Time(17.53)));
         check((Boolean)get(x,"ended"),"native completion releases ordinary video");
+        nav.pgc.key="T:2:2";set(x,"loadedPgc",nav.pgc.key);set(x,"loadedPlaylist",19);
+        Method reuse=DvdXlet.class.getDeclaredMethod("reusablePlayer",DiscModel.Cell.class);reuse.setAccessible(true);
+        fake.state=Controller.Prefetched;check(!(Boolean)reuse.invoke(x,c),"same-playlist loop must reopen an exhausted native player");
+        fake.state=Controller.Started;check((Boolean)reuse.invoke(x,c),"native-held pictures retain their live player");
         set(x,"ended",false);c.end=11000;
         step.invoke(x,c,11040L,11000L,13000L);
         check(nav.cell==1 && nav.serial==0 && fake.stops==0,"last joined item must drain before a different playlist");

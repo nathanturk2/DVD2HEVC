@@ -99,7 +99,7 @@ class RuntimeRepairTests(unittest.TestCase):
 
     def test_native_still_metadata_and_jar_patch_preserve_all_other_bytes(self):
         from test_uhd_native_still import playlist
-        from dvd2uhd.bdmv import native_still_playlist
+        from dvd2uhd.bdmv import native_still_playlist,audio_presentation_playlist
         source,candidate,_=self.fixture()
         from dvd2uhd.udf_reader import UdfImage
         files=UdfImage(source).files;metadata=playlist()
@@ -108,13 +108,32 @@ class RuntimeRepairTests(unittest.TestCase):
             with source.open('r+b') as stream:stream.seek(offset);stream.write(metadata)
         files['BDMV/STREAM/00036.m2ts']=dict(size=128,extents=[(12288,128)])
         original=source.read_bytes()
-        result=patch_image(source,candidate,{self.entry:b'\xca\xfe\xba\xbefixed'},native_still_playlists=[36])
+        result=patch_image(source,candidate,{self.entry:b'\xca\xfe\xba\xbefixed'},native_still_playlists=[36],audio_presentations={36:40000})
         self.assertFalse(result['all_non_jar_bytes_identical'])
         self.assertTrue(result['all_unmodified_bytes_identical'] and result['media_bytes_identical'])
         self.assertEqual(len(result['changed_files']),3)
         self.assertEqual(source.read_bytes(),original)
-        self.assertEqual(UdfImage(candidate).read('BDMV/PLAYLIST/00036.mpls'),native_still_playlist(metadata))
+        expected=audio_presentation_playlist(native_still_playlist(metadata),40000)
+        self.assertEqual(UdfImage(candidate).read('BDMV/PLAYLIST/00036.mpls'),expected)
+        self.assertEqual(UdfImage(candidate).read('BDMV/BACKUP/PLAYLIST/00036.mpls'),expected)
         self.assertEqual(candidate.read_bytes()[12288:12416],original[12288:12416])
+
+    def test_transport_repair_preserves_audio_picture_data_and_all_unrelated_iso_bytes(self):
+        from test_uhd_transport import tiny_stream,payloads
+        from dvd2uhd.transport import EOS,AUD
+        source,candidate,_=self.fixture()
+        from dvd2uhd.udf_reader import UdfImage
+        files=UdfImage(source).files;media,video=tiny_stream(two_packets=True)
+        files['BDMV/STREAM/00036.m2ts']=dict(size=len(media),extents=[(4096,len(media))])
+        with source.open('r+b') as stream:stream.seek(4096);stream.write(media)
+        original=source.read_bytes()
+        result=patch_image(source,candidate,{self.entry:b'\xca\xfe\xba\xbefixed'},terminal_delimiter_clips=[36])
+        self.assertFalse(result['media_bytes_identical'])
+        self.assertTrue(result['compressed_media_identical'] and result['all_unmodified_bytes_identical'])
+        repaired=UdfImage(candidate).read('BDMV/STREAM/00036.m2ts')
+        self.assertEqual(payloads(repaired)[9:],video+EOS+AUD)
+        self.assertEqual(payloads(repaired,0x1100),payloads(media,0x1100))
+        self.assertEqual(source.read_bytes(),original)
 
 
 if __name__=='__main__':unittest.main()

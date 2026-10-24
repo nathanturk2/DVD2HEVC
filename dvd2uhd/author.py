@@ -331,6 +331,10 @@ def mux_cell(folder,index,output,ffmpeg,ffprobe,tsmuxer,duration_ticks=0,infinit
     meta.write_text("\n".join(lines)+"\n",encoding="utf-8")
     template,data,crc_preservation=install_mux(folder,index,output,tsmuxer,[s['language'] for s in subtitle_channels],audio_inputs,
                                               keep_intermediates=keep_intermediates)
+    delimiters=[]
+    if video['codec_name']=='hevc' and len(hashes)<=2 and not padded:
+        from .transport import terminate_short_clip
+        delimiters=terminate_short_clip(Path(output)/f'BDMV/STREAM/{index:05d}.m2ts')
     return template,dict(video_codec=video["codec_name"],width=video["width"],height=video["height"],
                          fps=fps,audio_count=len(audio),audio_streams=audio_streams,
                          audio_formats=[(s['codec_name'],s.get('sample_rate'),s.get('channels')) for s in audio],
@@ -339,6 +343,7 @@ def mux_cell(folder,index,output,ffmpeg,ffprobe,tsmuxer,duration_ticks=0,infinit
                          audio_containers=audio_containers,
                          audio_boundary_recovery=audio_recovery or {},
                          audio_crc_preservation=crc_preservation,
+                         terminal_delimiter_packets=delimiters,
                          subtitle_controls=subtitle_channels,
                          playlist_times=bdmv.playlist_times(data),still_repeated=padded,sequence_end=separate,
                          still_silent_tail_ms=still_silent_tail_ms(probe,bdmv.playlist_times(data)) if padded else 0,
@@ -495,6 +500,7 @@ def author(source,output,*,tsmuxer=None,ffmpeg=None,ffprobe=None,bdj_api=None,ma
                                                                for i in range(len(selected))]
             bdmv.join_titles(output,graph,report)
             report['native_still_playlists']=bdmv.hold_native_stills(output,graph)
+            report['extended_audio_presentations']=bdmv.extend_audio_presentations(output,graph)
             binary.model(graph,resources/"disc.bin")
             (output/"navigation.json").write_text(json.dumps(graph,indent=2),encoding="utf-8")
             bdmv.bootstrap(output,template)

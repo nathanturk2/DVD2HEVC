@@ -83,8 +83,8 @@ def model(graph, target):
             w.q(c.get("end_ms",0))
             w.q(c.get('presentation_ms',c['duration']//90))
             # Model 5's original boolean byte extends to compatible flags.
-            # An older reader still sees True; new readers require a certified
-            # silent tail before native keepalive can repeat any video.
+            # An older reader still sees True. Retain the certified silent-tail
+            # flag for model compatibility; current players use native holds.
             repeated=c.get('still_repeated',False)
             w.f.write(bytes([(1 if repeated else 0)|(2 if repeated and c.get('still_keepalive',False) else 0)]))
             w.boolean(c.get('native_subtitle_controls',False))

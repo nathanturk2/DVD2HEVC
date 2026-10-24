@@ -22,6 +22,9 @@ menu/movie service changes. Menu return retains the DVD resume position. See
 Short still menus also retain VLC's live highlight output after the video ends,
 including Gladiator's audio setup and subtitle pages. This uses native Blu-ray
 still metadata and does not expand or reencode the original media.
+Repeated-picture stills now use the same native hold, avoiding video-output
+restarts while navigating Voyager's language screen. Mouse and directional
+navigation can alternate; stationary-pointer refreshes do not undo key input.
 
 To rebuild a fixed UHD-BD from a retained HEVC-DVD backup, use a new output name:
 
@@ -175,9 +178,9 @@ allow filesystem/driver overhead as well. Unusual discs can exceed this
 size-based estimate. Temporary media is retired as each physical clip completes;
 the exact source cells remain until the full compressed-picture/audio audit
 finishes, and original AC-3 fragments remain until cross-cell repair planning.
-Static stills use a short native asset plus the existing BD-J silent-tail
-keepalive, retaining the original DVD wait and audio instead of writing the
-wait as a minute of repeated pictures on every gallery page.
+Static stills use a short native asset and a native Blu-ray still hold,
+retaining the original DVD wait and audio instead of writing the wait as a
+minute of repeated pictures on every gallery page. No repeated seeking is needed.
 The 404-clip Mission: Impossible bonus-disc test on 23 October 2026 peaked at
 **7.5 GiB**, including the ISO; its final image fell from **21.9 GiB to 3.0 GiB**.
 The older run had retained **86.5 GiB** of intermediate media. The new run passed

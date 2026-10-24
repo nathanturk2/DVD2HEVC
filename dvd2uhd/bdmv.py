@@ -97,7 +97,11 @@ def native_still_playlist(data):
 
 
 def native_still_playlists(graph):
-    """Independent, unpadded DVD stills that need native decoder retention."""
+    """Independent DVD stills/repeated-picture assets needing decoder retention.
+
+    Repeated-picture assets also use the native hold. Seeking a short silent
+    tail repeatedly tears down/rebuffers VLC's output and destabilizes input.
+    """
     wanted=set();references={}
     for pgc in graph['pgcs']:
         for index,cell in enumerate(pgc['cells']):
@@ -105,7 +109,8 @@ def native_still_playlists(graph):
             if playlist<0:continue
             references.setdefault(playlist,[]).append(cell)
             wait=cell['still'] or (pgc['still'] if index==len(pgc['cells'])-1 else 0)
-            if wait and not cell.get('still_repeated',False):wanted.add(playlist)
+            if wait or (cell.get('still_repeated',False) and not cell.get('end_ms',0)):
+                wanted.add(playlist)
     for playlist in wanted:
         if any(c.get('end_ms',0) or c.get('presentation_ms',c['duration']//90)<=0 for c in references[playlist]):
             raise ValueError('Native DVD still requires independent cells with known presentation timing')
@@ -119,6 +124,50 @@ def hold_native_stills(root,graph):
             path=Path(root)/('BDMV/'+prefix+f'PLAYLIST/{playlist:05d}.mpls')
             path.write_bytes(native_still_playlist(path.read_bytes()))
     return playlists
+
+
+def audio_presentation_playlist(data,millis):
+    """Expose a short-video cell's complete IFO-timed audio without remuxing."""
+    primary_streams(data)
+    start=int.from_bytes(data[8:12],'big');pos=start+10
+    if int.from_bytes(data[start+6:start+8],'big')!=1:raise ValueError('Audio presentation requires one independent play item')
+    if type(millis)!=int or not 1<=millis<=86400000:raise ValueError('Invalid audio presentation duration')
+    begin,end=playlist_times(data);wanted=begin+millis*45
+    if wanted>=2**32:raise ValueError('Audio presentation timestamp overflow')
+    if end==wanted:return data
+    if not 0<end-begin<=45000 or wanted<=end+45000:
+        raise ValueError('Only a subsecond playlist may be extended to known DVD audio timing')
+    result=bytearray(data);result[pos+18:pos+22]=wanted.to_bytes(4,'big')
+    return bytes(result)
+
+
+def audio_presentations(graph,read):
+    """Find independently authored audio cells accidentally limited to video length."""
+    refs={}
+    for pgc in graph['pgcs']:
+        for cell in pgc['cells']:
+            playlist=cell.get('playlist',-1)
+            if playlist>=0:refs.setdefault(playlist,[]).append(cell)
+    wanted={}
+    for playlist,cells in refs.items():
+        if any(c.get('end_ms',0) or not c.get('audio_streams') for c in cells):continue
+        durations={c.get('presentation_ms',c['duration']//90) for c in cells}
+        if len(durations)!=1:continue
+        millis=durations.pop()
+        if millis<=1000:continue
+        data=read(f'BDMV/PLAYLIST/{playlist:05d}.mpls');begin,end=playlist_times(data)
+        if 0<end-begin<=45000 and millis*45>end-begin+45000:
+            audio_presentation_playlist(data,millis);wanted[playlist]=millis
+    return wanted
+
+
+def extend_audio_presentations(root,graph):
+    root=Path(root);wanted=audio_presentations(graph,lambda name:(root/name).read_bytes())
+    for playlist,millis in wanted.items():
+        for backup in ('','BACKUP/'):
+            path=root/('BDMV/'+backup+f'PLAYLIST/{playlist:05d}.mpls')
+            path.write_bytes(audio_presentation_playlist(path.read_bytes(),millis))
+    return wanted
 
 
 def joined_playlist(sources,programs,connections=None,durations=None):

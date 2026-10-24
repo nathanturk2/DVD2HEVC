@@ -171,14 +171,14 @@ def save(name):
 observations=[];startup_seconds=None
 # Read each completed log line once. Long original startup sequences and looping
 # menus produce large logs; rescanning them every 100 ms can delay the player.
-log_offset=0;log_pending=b'';last_navigation=None;last_menu_event=None;still_keepalive_count=0
+log_offset=0;log_pending=b'';last_navigation=None;last_menu_event=None;still_keepalive_count=0;last_selected=None
 def navigation_events():
- global log_offset,log_pending,last_navigation,last_menu_event,still_keepalive_count
+ global log_offset,log_pending,last_navigation,last_menu_event,still_keepalive_count,last_selected
  logfile=a.output/'libbluray.log'
  if not logfile.exists():return last_navigation,last_menu_event
  with logfile.open('rb') as stream:
   if stream.seek(0,2)<log_offset:
-   log_offset=0;log_pending=b'';last_navigation=None;last_menu_event=None;still_keepalive_count=0
+   log_offset=0;log_pending=b'';last_navigation=None;last_menu_event=None;still_keepalive_count=0;last_selected=None
   stream.seek(log_offset);chunk=stream.read();log_offset=stream.tell()
  lines=(log_pending+chunk).split(b'\n');log_pending=lines.pop()
  for line in lines:
@@ -187,6 +187,8 @@ def navigation_events():
   if match:last_navigation=match[2].decode('utf8','replace')
   match=re.search(rb'DVD2UHD (PLAY [^\r\n]+|MENU buttons=[^\r\n]+)',line)
   if match:last_menu_event=match[1].decode('utf8','replace')
+  match=re.search(rb'DVD2UHD (?:SELECT button=|MENU buttons=\d+ selected=)(\d+)',line)
+  if match:last_selected=int(match[1])
  return last_navigation,last_menu_event
 try:
  if play(mp):raise RuntimeError('libVLC play failed')
@@ -201,7 +203,7 @@ try:
   navigation_events()
   with lock:frame_hash=hashlib.sha256(latest[0]).hexdigest() if latest[0] else None
   observations.append(dict(action=action,time_ms=get_time(mp),frames=latest[1],audio_samples=audio_samples[0],state=state(mp),
-                           dvd_navigation=last_navigation,still_keepalive_count=still_keepalive_count,
+                           dvd_navigation=last_navigation,still_keepalive_count=still_keepalive_count,selected_button=last_selected,
                            title=api('libvlc_media_player_get_title',C.c_int,[ptr])(mp),
                            title_count=api('libvlc_media_player_get_title_count',C.c_int,[ptr])(mp),
                            seekable=bool(api('libvlc_media_player_is_seekable',C.c_int,[ptr])(mp)),

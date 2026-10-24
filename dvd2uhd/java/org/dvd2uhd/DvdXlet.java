@@ -35,6 +35,7 @@ public final class DvdXlet extends HComponent implements Xlet, UserEventListener
     private DiscModel.Menu menu;
     private DiscModel.Menu paintedMenu;
     private int selected=0,lastAudio=-1;
+    private int pointerX=Integer.MIN_VALUE,pointerY=Integer.MIN_VALUE;
     private long forcedActivated=Long.MIN_VALUE;
     private int loadedPlaylist=-1,loadedCell=0;
     private int lastNativeAudio=-1;
@@ -43,9 +44,13 @@ public final class DvdXlet extends HComponent implements Xlet, UserEventListener
     private long previousPosition=-1;
     private long loadedStart,loadedDuration;
     private String loadedPgc="";
-    private final Map<String,DVBBufferedImage> images=new HashMap<String,DVBBufferedImage>();
+    private final Map<String,DVBBufferedImage> images=new LinkedHashMap<String,DVBBufferedImage>(16,0.75f,true);
     private int cachedPixels=0;
     private DiscModel.Picture lastPicture;
+    private DiscModel.Picture repaintPicture;
+    private DiscModel.Menu repaintMenu;
+    private int repaintSelection=-1,repaintWidth=-1,repaintHeight=-1;
+    private boolean repaintActive;
     private int lastSub=-1;
     private String debugPgc;
     private long debugSeek=-1;
@@ -229,12 +234,12 @@ public final class DvdXlet extends HComponent implements Xlet, UserEventListener
         // startXlet(). Yield our monitor until its NormalContentEvent arrives;
         // otherwise the old title's timeline can overwrite the new playlist.
         if(!selectService(service))return false;
-        boolean same=c!=null && player!=null && loadedPlaylist==c.playlist && loadedPgc.equals(nav.pgc.key);
+        boolean same=reusablePlayer(c);
         boolean continuation=same && nav.continuation && loadedCell+1==nav.cell && position()>=c.start-100;
         boolean consecutive=c!=null && nav.continuation && loadedPgc.equals(nav.pgc.key) && loadedCell+1==nav.cell;
         long boundary=consecutive?(same?c.start-loadedStart:loadedDuration):0;
         if(!same && player!=null) {player.removeControllerListener(this);player.close();player=null;}
-        menu=null;clearImages();selected=nav.vm.sprm[8]>>10;forcedActivated=Long.MIN_VALUE;ended=false;endWall=-1;endMedia=0;stillUntil=-1;lastAudio=-1;lastNativeAudio=-1;lastDvdSubtitle=-1;previousPosition=-1;
+        menu=null;clearImages();selected=nav.vm.sprm[8]>>10;pointerX=pointerY=Integer.MIN_VALUE;forcedActivated=Long.MIN_VALUE;ended=false;endWall=-1;endMedia=0;stillUntil=-1;lastAudio=-1;lastNativeAudio=-1;lastDvdSubtitle=-1;previousPosition=-1;
         if(c==null) {graphics=null;log("STOP");return true;}
         if(c.playlist<0) throw new IOException("DVD cell was not authored: "+nav.pgc.key+":"+nav.cell);
         graphics=new DiscModel.Graphics(getClass().getResourceAsStream("/"+c.graphics));
@@ -260,6 +265,13 @@ public final class DvdXlet extends HComponent implements Xlet, UserEventListener
         audio();subtitleControl();
         if(!lifecyclePaused)player.start();
         repaint();return true;
+    }
+    private boolean reusablePlayer(DiscModel.Cell c) {
+        // VLC has drained and torn down an EOF player's native input. A DVD
+        // cell command can loop back to the very same playlist; reopen it
+        // rather than seeking an exhausted player into a blank video output.
+        return c!=null && player!=null && loadedPlaylist==c.playlist && loadedPgc.equals(nav.pgc.key) &&
+               !(ended && player.getState()!=Controller.Started);
     }
     private void audio() throws Exception {
         if(player==null || nav.pgc==null) return;
@@ -381,19 +393,11 @@ public final class DvdXlet extends HComponent implements Xlet, UserEventListener
                                 stillUntil=still==255?Long.MAX_VALUE:now+Math.max(0,c.presentation-t)+still*1000L;
                                 log("END cell="+nav.cell+" still="+still);
                             }
-                            // Keep the native input alive while a repeated DVD still
-                            // waits for a user. The last 500 ms is silent video padding,
-                            // not a repeat of the original menu audio. DVD timers keep
-                            // using the monotonic still clock across this native seek.
-                            if(ended && c.keepalive && stillUntil>now && !clock.paused()) {
-                                long asset=player.getDuration().getNanoseconds()/1000000;
-                                if(asset>1000 && absolute>=asset-250) {
-                                    player.setMediaTime(new Time((asset-500)/1000.0));
-                                    log("STILL keepalive");
-                                }
-                            }
+                            // MPLS native still mode retains this decoder and overlay.
+                            // Repeated seeks through a 500 ms tail rebuffered VLC and
+                            // could blank/resize the video while navigating menus.
                             if(!clock.paused() && stillUntil>=0 && now>=stillUntil) nav.endCell();
-                            repaint();
+                            if(nav.serial==serial)repaintIfChanged(t);
                         }
                     }
                 }
@@ -441,6 +445,7 @@ public final class DvdXlet extends HComponent implements Xlet, UserEventListener
     }
     private void select(int n) {
         if(menu==null || n<1 || n>menu.count)return;
+        if(selected!=n)log("SELECT button="+n);
         selected=n;nav.vm.sprm[8]=n<<10;
         repaint();
     }
@@ -497,6 +502,7 @@ public final class DvdXlet extends HComponent implements Xlet, UserEventListener
         } catch(Throwable ex) {fail(ex);}
     }
     private int argb(int value,int alpha) {
+        if(alpha==0)return 0;
         int y=((value>>16)&255)-16,cr=((value>>8)&255)-128,cb=(value&255)-128;
         int r=clamp((298*y+409*cr+128)>>8),g=clamp((298*y-100*cb-208*cr+128)>>8),b=clamp((298*y+516*cb+128)>>8);
         return (alpha*17)<<24 | r<<16 | g<<8 | b;
@@ -510,9 +516,20 @@ public final class DvdXlet extends HComponent implements Xlet, UserEventListener
         String key=System.identityHashCode(p)+":"+(button==null?0:selected)+":"+word;
         DVBBufferedImage img=images.get(key);
         if(img!=null)return img;
-        if(cachedPixels+p.w*p.h>1024*1024)clearImages();
-        byte[] mask=p.mask();
+        // Nine full-raster language highlights fit within a 16 MiB pixel
+        // budget. Evict just the least recently used image, not the whole menu.
+        while(cachedPixels+p.w*p.h>4*1024*1024 && !images.isEmpty()) {
+            Iterator<DVBBufferedImage> oldest=images.values().iterator();
+            DVBBufferedImage expired=oldest.next();oldest.remove();
+            cachedPixels-=expired.getWidth()*expired.getHeight();expired.dispose();
+        }
         img=new DVBBufferedImage(p.w,p.h);
+        img.setRGB(0,0,p.w,p.h,picturePixels(p,button,word),0,p.w);
+        cachedPixels+=p.w*p.h;images.put(key,img);return img;
+    }
+    private int[] picturePixels(DiscModel.Picture p,DiscModel.Button button,int word) throws IOException {
+        byte[] mask=p.mask();
+        int[] pixels=new int[p.w*p.h];
         for(int y=0;y<p.h;y++)for(int x=0;x<p.w;x++) {
             int index=mask[y*p.w+x]&3,col=p.colours[index],alpha=p.alpha[index];
             long changed=p.colourWord(x+p.x,y+p.y);
@@ -520,9 +537,28 @@ public final class DvdXlet extends HComponent implements Xlet, UserEventListener
             if(button!=null && x+p.x>=button.x && x+p.x<=button.x2 && y+p.y>=button.y && y+p.y<=button.y2) {
                 col=(word >>> (16+index*4))&15;alpha=(word >>> (index*4))&15;
             }
-            img.setRGB(x,y,argb(nav.pgc.palette[col],alpha));
+            pixels[y*p.w+x]=argb(nav.pgc.palette[col],alpha);
         }
-        cachedPixels+=p.w*p.h;images.put(key,img);return img;
+        return pixels;
+    }
+    private DiscModel.Picture visiblePicture(long t) {
+        if(graphics==null || nav.pgc==null)return null;
+        int logical=nav.vm.sprm[2]&31,control=nav.pgc.sub[logical];
+        if((control&0x80000000)==0)for(int i=0;i<32;i++)if((nav.pgc.sub[i]&0x80000000)!=0) {control=nav.pgc.sub[i];break;}
+        int physical=(control >>> (nav.pgc.wide?16:24))&31;
+        SubpictureTimeline.Active active=subtitles.active(physical,t);
+        if(active==null || (nav.pgc.title && (nav.vm.sprm[2]&64)==0 && !active.picture.forced))return null;
+        return active.picture;
+    }
+    private boolean repaintIfChanged(long t) {
+        DiscModel.Picture picture=visiblePicture(t);
+        boolean active=System.currentTimeMillis()<actionUntil;
+        int width=getWidth(),height=getHeight();
+        if(picture==repaintPicture && menu==repaintMenu && selected==repaintSelection &&
+           active==repaintActive && width==repaintWidth && height==repaintHeight)return false;
+        repaintPicture=picture;repaintMenu=menu;repaintSelection=selected;
+        repaintActive=active;repaintWidth=width;repaintHeight=height;
+        repaint();return true;
     }
     public synchronized void paint(Graphics g) {
         Graphics2D g2=(Graphics2D)g;
@@ -533,11 +569,10 @@ public final class DvdXlet extends HComponent implements Xlet, UserEventListener
         if(menu!=null && paintedMenu!=menu) {
             paintedMenu=menu;log("PAINT pictures="+graphics.pictures.length+" size="+getWidth()+"x"+getHeight()+" visible="+isVisible());
         }
-        long t=time();int logical=nav.vm.sprm[2]&31,control=nav.pgc.sub[logical];
-        if((control&0x80000000)==0)for(int i=0;i<32;i++)if((nav.pgc.sub[i]&0x80000000)!=0) {control=nav.pgc.sub[i];break;}
-        int physical=(control >>> (nav.pgc.wide?16:24))&31;
+        long t=time();int logical=nav.vm.sprm[2]&31;
+        DiscModel.Picture p=visiblePicture(t);
         if(nav.pgc.title && lastSub!=nav.vm.sprm[2]) {
-            lastSub=nav.vm.sprm[2];log("SUBTITLE logical="+logical+" physical="+physical+" enabled="+((lastSub&64)!=0));
+            lastSub=nav.vm.sprm[2];log("SUBTITLE logical="+logical+" physical="+(p==null?-1:p.stream)+" enabled="+((lastSub&64)!=0));
         }
         DiscModel.Button b=menu==null?null:menu.button(selected,nav.pgc.wide);
         int word=0;
@@ -547,11 +582,8 @@ public final class DvdXlet extends HComponent implements Xlet, UserEventListener
         // Apply DVD display aspect once; centering adds a second 4:3 offset.
         sx=sy*nav.pgc.height/nav.pgc.width*(nav.pgc.wide?16.0/9.0:4.0/3.0);
         double left=0;
-        SubpictureTimeline.Active active=subtitles.active(physical,t);
-        if(active!=null) {
-            DiscModel.Picture p=active.picture;
-            if(nav.pgc.title && (nav.vm.sprm[2]&64)==0 && !p.forced)return;
-            if(nav.pgc.title && lastPicture!=p) {lastPicture=p;log("PICTURE stream="+physical+" start="+p.start+" end="+p.end);}
+        if(p!=null) {
+            if(nav.pgc.title && lastPicture!=p) {lastPicture=p;log("PICTURE stream="+p.stream+" start="+p.start+" end="+p.end);}
             try {
                 DVBBufferedImage img=image(p,b,word);
                 g2.drawImage(img,(int)(left+p.x*sx),(int)(p.y*sy),(int)(p.w*sx),(int)(p.h*sy),null);
@@ -564,7 +596,7 @@ public final class DvdXlet extends HComponent implements Xlet, UserEventListener
         pointer(e,true);
     }
     private void pointer(MouseEvent e,boolean pressed) {
-        if(failure!=null || menu==null || nav.serial!=serial || time()>=menu.selectEnd || ((nav.pgc.uops|graphics.uops(time()))&(1<<17))!=0)return;
+        if(failure!=null || menu==null || servicePending || nav.serial!=serial || time()>=menu.selectEnd || ((nav.pgc.uops|graphics.uops(time()))&(1<<17))!=0)return;
         // Stock VLC passes encoded-video raster coordinates to BD-J mouse
         // events, rather than coordinates in the HD overlay plane.
         // Match VLC's libdvdnav mouse_select/mouse_activate: inclusive bounds,
@@ -572,6 +604,10 @@ public final class DvdXlet extends HComponent implements Xlet, UserEventListener
         // Hover selects only; clicking selects and executes exactly once,
         // regardless of auto_action_mode. Outside all buttons does nothing.
         int x=e.getX(),y=e.getY(),best=0,distance=0x08000000;
+        // A stationary pointer must not undo directional navigation when a
+        // video-output refresh delivers another move at the same coordinates.
+        if(!pressed && x==pointerX && y==pointerY)return;
+        pointerX=x;pointerY=y;
         for(int n=1;n<=menu.count;n++) {
             DiscModel.Button b=menu.button(n,nav.pgc.wide);
             if(b!=null && x>=b.x && x<=b.x2 && y>=b.y && y<=b.y2) {
@@ -586,7 +622,7 @@ public final class DvdXlet extends HComponent implements Xlet, UserEventListener
     public void mouseClicked(MouseEvent e) {}
     public void mouseReleased(MouseEvent e) {}
     public void mouseEntered(MouseEvent e) {}
-    public void mouseExited(MouseEvent e) {}
+    public synchronized void mouseExited(MouseEvent e) {pointerX=pointerY=Integer.MIN_VALUE;}
     public synchronized void mouseMoved(MouseEvent e) {pointer(e,false);}
     public synchronized void mouseDragged(MouseEvent e) {pointer(e,false);}
 }
