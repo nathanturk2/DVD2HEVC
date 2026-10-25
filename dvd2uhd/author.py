@@ -130,7 +130,7 @@ def extract_cell(disc,key,refs,folder,graphics_dir,index):
     for p,c in refs:
         c.update(playlist=index,graphics=resource,source_flags=c["flags"])
         c["flags"] &= ~4  # physical interleaving has been resolved by DSI
-    return dict(origin=origin,menus=len(menus),pictures=len(pictures),spu_resets=len(resets),uop_changes=len(uops),
+    return dict(origin=origin,menus=len(menus),interactive_buttons=any(m["count"] for m in menus),pictures=len(pictures),spu_resets=len(resets),uop_changes=len(uops),
                 forced_pictures=sum(bool(pic.forced) for _,_,pic in pictures),
                 regional_colour_pictures=sum(bool(pic.colcon) for _,_,pic in pictures),
                 audio_ids=sorted(audio_ids),source_sha256=digest.hexdigest())
@@ -190,7 +190,7 @@ def still_silent_tail_ms(probe,native_times):
     return max(0,round((native_times[1]-native_times[0])/45-max(ends,default=0)))
 
 
-def mux_cell(folder,index,output,ffmpeg,ffprobe,tsmuxer,duration_ticks=0,infinite_still=False,sequence_end=True,languages=None,still_seconds=0,subtitles=None,audio_recovery=None,keep_intermediates=False):
+def mux_cell(folder,index,output,ffmpeg,ffprobe,tsmuxer,duration_ticks=0,infinite_still=False,sequence_end=True,languages=None,still_seconds=0,subtitles=None,audio_recovery=None,keep_intermediates=False,interactive=False):
     src=folder/"source.vob"
     probe,diagnostics=probe_media(src,ffprobe)
     (folder/'source-probe-diagnostics.log').write_text(diagnostics)
@@ -272,7 +272,15 @@ def mux_cell(folder,index,output,ffmpeg,ffprobe,tsmuxer,duration_ticks=0,infinit
         if stream['codec_name'] not in codec_ids:raise FormatError('Unsupported intermediate audio codec: '+stream['codec_name'])
         audio_tracks.append({'Stream ID':codec_ids[stream['codec_name']],'track':str(stream['index']+1)})
     found=video_tracks+audio_tracks
-    lines=["MUXOPT --blu-ray-v3 --vbr --vbv-len=500 --no-pcr-on-video-pid"]
+    # libVLC consumes Blu-ray data in 60 KiB reads, through an asynchronous
+    # TS demuxer. Dense audio-only menu reads can advance its wakeup clock by
+    # seconds before BD-J navigation events are serviced. Bound that read-ahead
+    # with transport stuffing; original pictures, audio and timestamps survive.
+    # tsMuxeR only enables its minimum when a maximum is also specified.
+    from .menu_pacing import MIN_KBPS,mux_options
+    menu_rate=MIN_KBPS if interactive and audio else 0
+    pacing=mux_options(interactive,bool(audio))
+    lines=["MUXOPT --blu-ray-v3 --vbr --vbv-len=500 --no-pcr-on-video-pid"+pacing]
     audio_offsets=[]
     for stream in audio:
         if 'start_time' not in stream or 'start_time' not in video:raise FormatError('Audio/video timestamps are missing')
@@ -348,7 +356,7 @@ def mux_cell(folder,index,output,ffmpeg,ffprobe,tsmuxer,duration_ticks=0,infinit
                          playlist_times=bdmv.playlist_times(data),still_repeated=padded,sequence_end=separate,
                          still_silent_tail_ms=still_silent_tail_ms(probe,bdmv.playlist_times(data)) if padded else 0,
                          sequence_end_version='eos-only' if separate else None,
-                         short_presentation_ms=short_presentation_ms)
+                         short_presentation_ms=short_presentation_ms,menu_transport_min_kbps=menu_rate)
 
 
 def install_mux(folder,index,output,tsmuxer,subtitle_languages,audio_inputs=None,*,keep_intermediates=False):
@@ -464,7 +472,7 @@ def author(source,output,*,tsmuxer=None,ffmpeg=None,ffprobe=None,bdj_api=None,ma
                 template,media=mux_cell(folder,index,output,languages=audio_languages(graph,refs),subtitles=subtitle_languages(graph,refs),duration_ticks=max(c["duration"] for p,c in refs),
                                        infinite_still=any(c['still']==255 or c['number']==len(p['cells']) and p['still']==255 for p,c in refs),
                                        still_seconds=max((c['still'] if c['still']<255 else 0)+(p['still'] if c['number']==len(p['cells']) and p['still']<255 else 0) for p,c in refs),
-                                       keep_intermediates=keep_intermediates,**tools)
+                                       keep_intermediates=keep_intermediates,interactive=details["interactive_buttons"],**tools)
                 ordinals=media['audio_streams']
                 if set(ordinals)!={sid&7 for sid in details["audio_ids"]}:
                     raise FormatError("Audio packet identities do not match authored tracks")
@@ -491,7 +499,7 @@ def author(source,output,*,tsmuxer=None,ffmpeg=None,ffprobe=None,bdj_api=None,ma
                         audio_recovery=recovery,duration_ticks=max(c['duration'] for p,c in refs),
                         infinite_still=any(c['still']==255 or c['number']==len(p['cells']) and p['still']==255 for p,c in refs),
                         still_seconds=max((c['still'] if c['still']<255 else 0)+(p['still'] if c['number']==len(p['cells']) and p['still']<255 else 0) for p,c in refs),
-                        keep_intermediates=keep_intermediates,**tools)
+                        keep_intermediates=keep_intermediates,interactive=row.get("interactive_buttons",bool(row["menus"])),**tools)
                     row.update(media)
                     for p,c in refs:
                         c['still_keepalive']=media['still_repeated'] and media['still_silent_tail_ms']>=750

@@ -8,6 +8,7 @@ from pathlib import Path
 from PIL import Image
 p=argparse.ArgumentParser(description=__doc__)
 p.add_argument('vlc_root',type=Path);p.add_argument('disc',type=Path)
+p.add_argument('--media-scheme',choices=('bluray','dvd'),default='bluray',help='Use dvd with the private player for original-source comparisons')
 p.add_argument('--output',type=Path,default=Path('work/libvlc-capture'))
 p.add_argument('--actions',default='down,activate',help='Comma separated navigation, menu-ready, pgc-ready=key, subtitles-ready=count, seek=ms, wait=seconds, pause, play, audio=index, subtitle=index/none, chapter=index, title=index, menu (popup), top-menu (native title 0) actions')
 p.add_argument('--java-home',type=Path)
@@ -18,6 +19,7 @@ p.add_argument('--vout',help='Optional normal video output module for snapshot t
 p.add_argument('--timeout',type=float,default=300,help='Hard timeout for our child process')
 p.add_argument('--ready-timeout',type=float,default=180,help='Deadline for each DVD menu/PGC readiness action, including original intros')
 p.add_argument('--audio',action='store_true',help='Decode audio to memory callbacks for A/V testing')
+p.add_argument('--trace-playback',action='store_true',help='Timestamp selected native log message templates in playback-trace.jsonl instead of the buffered VLC log')
 p.add_argument('--child',action='store_true',help=argparse.SUPPRESS)
 a=p.parse_args();a.output.mkdir(parents=True,exist_ok=True)
 def write_result(result):
@@ -109,7 +111,22 @@ if a.vout:opts.append(('--vout='+a.vout).encode())
 if not a.audio:opts.append(b'--no-audio')
 instance=new(len(opts),(C.c_char_p*len(opts))(*opts))
 if not instance:raise RuntimeError('libVLC instance failed')
-m=media(instance,('bluray:///'+a.disc.resolve().as_posix()).encode());mp=player_new(m)
+
+if a.trace_playback:
+ # Timestamp selected native messages directly: the normal file logger buffers
+ # output, which obscures the order of user navigation and decoder draining.
+ playback_trace=(a.output/'playback-trace.jsonl').open('w',encoding='utf8')
+ trace_origin=time.monotonic()
+ LOG_CALLBACK=C.CFUNCTYPE(None,ptr,C.c_int,ptr,C.c_char_p,ptr)
+ @LOG_CALLBACK
+ def trace_playback(opaque,level,context,fmt,args):
+  message=(fmt or b'').decode('utf8','replace')
+  if any(word in message for word in ('Draining','playlist playback','ES_OUT_RESET_PCR','Buffering','Decoder wait','deadlock','EOF')):
+   with lock:
+    playback_trace.write(json.dumps([round(time.monotonic()-trace_origin,3),message])+'\n');playback_trace.flush()
+ api('libvlc_log_set',None,[ptr,LOG_CALLBACK,ptr])(instance,trace_playback,None)
+
+m=media(instance,(a.media_scheme+':///'+a.disc.resolve().as_posix()).encode());mp=player_new(m)
 get_time=api('libvlc_media_player_get_time',C.c_int64,[ptr])
 class Track(C.Structure):pass
 Track._fields_=[('id',C.c_int),('name',C.c_char_p),('next',C.POINTER(Track))]
@@ -202,7 +219,7 @@ try:
  def observe(action):
   navigation_events()
   with lock:frame_hash=hashlib.sha256(latest[0]).hexdigest() if latest[0] else None
-  observations.append(dict(action=action,time_ms=get_time(mp),frames=latest[1],audio_samples=audio_samples[0],state=state(mp),
+  observations.append(dict(action=action,elapsed_seconds=round(time.monotonic()-started,3),time_ms=get_time(mp),frames=latest[1],audio_samples=audio_samples[0],state=state(mp),
                            dvd_navigation=last_navigation,still_keepalive_count=still_keepalive_count,selected_button=last_selected,
                            title=api('libvlc_media_player_get_title',C.c_int,[ptr])(mp),
                            title_count=api('libvlc_media_player_get_title_count',C.c_int,[ptr])(mp),

@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- Keep low-bitrate DVD menus responsive in stock VLC by bounding transport
+  read-ahead for menu audio. Preserve the original compressed video/audio,
+  commands, transitions and still timing; movie streams remain variable bitrate.
+
 - Retire duplicate clip media as authoring proceeds, retaining original cells
   for the unchanged full media audit and AC-3 fragments for boundary repairs.
 - Keep silent DVD still waits in the BD-J VM instead of inflating each gallery

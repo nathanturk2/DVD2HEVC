@@ -10,9 +10,24 @@ from dvd2uhd.audio_frames import inventory
 from dvd2uhd.audio_preservation import crc2,prepare,restore
 from dvd2uhd.boundary_audio import mux_input
 from dvd2uhd.source import FormatError
+from dvd2uhd.audit import packet_timing_hash
 
 
 class MediaFailureTests(unittest.TestCase):
+    def test_packet_timing_ignores_diagnostic_addresses_but_detects_real_changes(self):
+        import json
+        records=dict(packets=[dict(stream_index=0,pts=90000,dts=89000,duration=1000,size=123)])
+        hashes=[]
+        for diagnostic in (b'[hevc @ 00001234] missing picture',b'[hevc @ 00005678] missing picture'):
+            result=subprocess.CompletedProcess([],0,json.dumps(records).encode(),diagnostic)
+            with patch('dvd2uhd.audit.subprocess.run',return_value=result):
+                hashes.append(packet_timing_hash('menu.m2ts','ffprobe'))
+        self.assertEqual(hashes[0],hashes[1])
+        records['packets'][0]['pts']+=90000
+        result=subprocess.CompletedProcess([],0,json.dumps(records).encode(),b'')
+        with patch('dvd2uhd.audit.subprocess.run',return_value=result):
+            self.assertNotEqual(packet_timing_hash('menu.m2ts','ffprobe'),hashes[0])
+
     def test_frame_records_are_separate_from_decoder_diagnostics(self):
         with tempfile.TemporaryDirectory() as temporary:
             log=Path(temporary)/'probe.log'

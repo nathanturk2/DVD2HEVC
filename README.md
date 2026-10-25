@@ -79,7 +79,12 @@ tsMuxeR on `PATH`; `DVD2HEVC_TSMUXER` can identify a tsMuxeR executable.
 `DVD2HEVC_STOCK_VLC_ROOT` can identify a stock VLC directory. Authoring also
 accepts `--tsmuxer`, `--udf-tool`, `--java-home` and `--vlc-root` overrides.
 The BD-J API JAR comes from VLC's `plugins/access`; it is not bundled here.
-No private VLC build is required for the default output.
+No private VLC build is required for the default output. Menu streams with audio use a
+4 Mbit/s minimum transport rate so stock VLC services BD-J navigation promptly.
+This adds transport stuffing to low-bitrate menus, without re-encoding their
+pictures or audio or changing the original transitions. Noninteractive titles
+retain their normal variable bitrate. Low-bitrate menus become logically larger;
+the padding is highly compressible on filesystems with transparent compression.
 
 For a desktop shortcut:
 

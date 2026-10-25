@@ -223,6 +223,29 @@ def audio_hash(path,stream,ffmpeg):
         return digest.hexdigest()
 
 
+def packet_timing_hash(path,ffprobe,log=None):
+    """Compare access-unit timing independently of mux order and diagnostics."""
+    result=subprocess.run([str(ffprobe),'-v','error','-show_packets','-show_entries',
+                           'packet=stream_index,pts,dts,duration,size','-of','json',str(path)],
+                          capture_output=True,timeout=300,
+                          creationflags=subprocess.CREATE_NO_WINDOW if os.name=='nt' else 0)
+    if log is not None:Path(log).write_bytes(result.stderr)
+    if result.returncode:raise RuntimeError(result.stderr.decode('utf8','replace')[-3000:])
+    groups={}
+    for row in json.loads(result.stdout)['packets']:
+        index=row['stream_index']
+        values=[row.get(key) for key in ('pts','dts','duration','size')]
+        # ffprobe represents packet size as a decimal JSON string, while
+        # timestamps/durations are integers. Normalize both forms explicitly.
+        values=[int(v) if isinstance(v,str) and re.fullmatch(r'-?\d+',v) else v for v in values]
+        if type(index)!=int or any(v is not None and type(v)!=int for v in values):
+            raise ValueError('Malformed packet timing record')
+        groups.setdefault(index,[]).append(values)
+    if not groups:raise ValueError('No media packets found')
+    normalized=json.dumps(sorted(groups.items()),separators=(',',':')).encode()
+    return hashlib.sha256(normalized).hexdigest()
+
+
 def audio_inventory(path,stream,ffmpeg,continuation=b''):
     from .audio_frames import inventory
     with tempfile.TemporaryFile() as errors:
