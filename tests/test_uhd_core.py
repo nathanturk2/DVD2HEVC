@@ -238,7 +238,9 @@ class ContainerTests(unittest.TestCase):
                 root=Path(temporary);folder=root/'cell';bd=folder/'bd/BDMV';output=root/'disc'
                 for sub in ('CLIPINF','STREAM','PLAYLIST'):(bd/sub).mkdir(parents=True)
                 (bd/'index.bdmv').write_bytes(b'index')
-                (bd/'CLIPINF/00000.clpi').write_bytes(b'clpi')
+                clpi=bytearray(b'HDMV0300'+b'\0'*52)
+                clpi[40:44]=(16).to_bytes(4,'big');clpi[46]=clpi[47]=1
+                (bd/'CLIPINF/00000.clpi').write_bytes(clpi)
                 (bd/'PLAYLIST/00000.mpls').write_bytes(b'playlist')
                 stream=bd/'STREAM/00000.m2ts';stream.write_bytes(b'new stream')
                 target=output/'BDMV/STREAM/00007.m2ts';target.parent.mkdir(parents=True);target.write_bytes(b'old stream')
@@ -250,6 +252,9 @@ class ContainerTests(unittest.TestCase):
                 self.assertEqual(target.read_bytes(),b'new stream')
                 self.assertEqual(clone.read_bytes(),b'old stream')
                 self.assertEqual(stream.exists(),retain)
+                expected=clpi[:47]+b'\0'+clpi[48:]
+                self.assertEqual((output/'BDMV/CLIPINF/00007.clpi').read_bytes(),expected)
+                self.assertEqual((output/'BDMV/BACKUP/CLIPINF/00007.clpi').read_bytes(),expected)
 
     def test_successful_cell_scratch_is_retired_without_removing_audit_or_boundary_inputs(self):
         from dvd2uhd.author import prune_cell_scratch

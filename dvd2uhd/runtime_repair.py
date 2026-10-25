@@ -47,7 +47,7 @@ def _identity(path):
     return value.st_size,value.st_mtime_ns,value.st_ino
 
 
-def patch_image(source,candidate,replacements,progress=None,*,native_still_playlists=(),audio_presentations=None,terminal_delimiter_clips=()):
+def patch_image(source,candidate,replacements,progress=None,*,native_still_playlists=(),audio_presentations=None,terminal_delimiter_clips=(),vlc_clipinfo=False):
     """Copy once and patch the runtime plus optional native-still metadata.
 
     A masked SHA-256 from the original read must match an independent candidate
@@ -59,11 +59,24 @@ def patch_image(source,candidate,replacements,progress=None,*,native_still_playl
     source,candidate=(Path(p).resolve() for p in (source,candidate))
     if source==candidate or candidate.exists():raise FileExistsError('Runtime repair requires a new candidate image')
     original_identity=_identity(source);udf=UdfImage(source)
-    entry=udf.files['BDMV/JAR/00000.jar']
-    if entry['size']>256*1024**2:raise ValueError('Runtime JAR exceeds the bounded repair limit')
-    original=udf.read('BDMV/JAR/00000.jar',limit=256*1024**2)
-    jar,record=repaired_jar(original,replacements)
-    changes={'BDMV/JAR/00000.jar':jar}
+    changes={};record=dict(changed_entries=[])
+    if replacements:
+        entry=udf.files['BDMV/JAR/00000.jar']
+        if entry['size']>256*1024**2:raise ValueError('Runtime JAR exceeds the bounded repair limit')
+        original=udf.read('BDMV/JAR/00000.jar',limit=256*1024**2)
+        jar,record=repaired_jar(original,replacements)
+        changes['BDMV/JAR/00000.jar']=jar
+    elif not vlc_clipinfo:
+        raise ValueError('Runtime repair requires class replacements or a clip-info repair')
+    clipinfo_changes=[]
+    if vlc_clipinfo:
+        from .bdmv import vlc_clipinfo as compatible_clipinfo
+        import re
+        for name in sorted(udf.files):
+            if not re.fullmatch(r'BDMV/(?:BACKUP/)?CLIPINF/[0-9]{5}\.clpi',name):continue
+            old=udf.read(name,limit=4*1024**2);new=compatible_clipinfo(old)
+            if old!=new:changes[name]=new;clipinfo_changes.append(name)
+        if not changes:raise ValueError('No clip-info repair is needed')
     from .bdmv import native_still_playlist
     for playlist in native_still_playlists:
         if type(playlist)!=int or not 0<=playlist<2000:raise ValueError('Invalid native still playlist ID')
@@ -171,13 +184,15 @@ def patch_image(source,candidate,replacements,progress=None,*,native_still_playl
             rows.append(dict(path=name,size=file_entry['size'],sha256=digest.hexdigest()))
     if _identity(source)!=original_identity:raise ValueError('Original image changed during verification')
     if _identity(candidate)!=candidate_identity:raise ValueError('Runtime candidate changed during verification')
-    record.update(all_non_jar_bytes_identical=len(changes)==1 and not transport,all_unmodified_bytes_identical=True,
+    jar_only=set(changes)=={'BDMV/JAR/00000.jar'} and not transport
+    record.update(all_non_jar_bytes_identical=jar_only,all_unmodified_bytes_identical=True,
                   media_bytes_identical=not transport,compressed_media_identical=True,transport_delimiter_packets=transport,
                   changed_files=sorted(set(changes)|set(transport)),
                   native_still_playlists=sorted(set(native_still_playlists)),unchanged_bytes_sha256=actual.hexdigest(),
+                  vlc_clipinfo=clipinfo_changes,
                   audio_presentations=audio_presentations or {},
                   original_image_sha256=original_hash.hexdigest(),image_sha256=final_hash.hexdigest(),
                   original_identity=list(original_identity),independent_descriptors=descriptors,
                   manifest=dict(image=str(candidate),verified=True,bytes=at,files=rows))
-    if len(changes)==1 and not transport:record['non_jar_sha256']=actual.hexdigest()
+    if jar_only:record['non_jar_sha256']=actual.hexdigest()
     return record

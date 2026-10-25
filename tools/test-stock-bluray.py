@@ -16,9 +16,13 @@ p.add_argument('--seek-ms',type=int,help='Seek after navigation actions, for cel
 p.add_argument('--wait',type=float,default=3,help='Initial wait in seconds')
 p.add_argument('--native-snapshot',action='store_true',help='Use the normal VLC video output and snapshot API')
 p.add_argument('--vout',help='Optional normal video output module for snapshot testing')
+p.add_argument('--hardware',default='none',help='VLC hardware decoder setting (use any with native snapshots to test normal playback)')
 p.add_argument('--timeout',type=float,default=300,help='Hard timeout for our child process')
 p.add_argument('--ready-timeout',type=float,default=180,help='Deadline for each DVD menu/PGC readiness action, including original intros')
 p.add_argument('--audio',action='store_true',help='Decode audio to memory callbacks for A/V testing')
+p.add_argument('--native-audio',action='store_true',help='Use the normal VLC audio output instead of disabling audio')
+p.add_argument('--action-wait',type=float,default=2,help='Seconds after each navigation action')
+p.add_argument('--no-snapshots',action='store_true',help='Record playback observations without snapshot delays')
 p.add_argument('--trace-playback',action='store_true',help='Timestamp selected native log message templates in playback-trace.jsonl instead of the buffered VLC log')
 p.add_argument('--child',action='store_true',help=argparse.SUPPRESS)
 a=p.parse_args();a.output.mkdir(parents=True,exist_ok=True)
@@ -105,10 +109,10 @@ def display_frame(opaque,picture):
    while len(recent)>8:recent.popitem(last=False)
   else:pixels=recent.get(picture)
   if pixels is not None:latest[0]=pixels;latest[1]+=1
-opts=[b'--ignore-config',b'--no-video-title-show',b'--avcodec-hw=none',b'--no-osd',
+opts=[b'--ignore-config',b'--no-video-title-show',('--avcodec-hw='+a.hardware).encode(),b'--no-osd',
       b'--verbose=2',b'--file-logging',('--logfile='+str((a.output/'vlc.log').resolve())).encode()]
 if a.vout:opts.append(('--vout='+a.vout).encode())
-if not a.audio:opts.append(b'--no-audio')
+if not a.audio and not a.native_audio:opts.append(b'--no-audio')
 instance=new(len(opts),(C.c_char_p*len(opts))(*opts))
 if not instance:raise RuntimeError('libVLC instance failed')
 
@@ -175,6 +179,7 @@ def cleanup_frame(opaque):pass
 if not a.native_snapshot:
  api('libvlc_video_set_format_callbacks',None,[ptr,FORMAT,CLEANUP])(mp,format_frame,cleanup_frame)
 def save(name):
+ if a.no_snapshots:return
  if a.native_snapshot:
   code=api('libvlc_video_take_snapshot',C.c_int,[ptr,C.c_uint,C.c_char_p,C.c_uint,C.c_uint])(mp,0,str((a.output/(name+'.png')).resolve()).encode(),width,height)
   if code:raise RuntimeError('Native VLC snapshot failed')
@@ -236,7 +241,7 @@ try:
       startup_seconds=startup_seconds,state=state(mp),observations=observations,output=str(a.output.resolve())))
  time.sleep(a.wait);save('initial');observe('initial')
  for i,action in enumerate(filter(None,a.actions.split(','))):
-  wait=2
+  wait=a.action_wait
   if action=='menu-ready' or action.startswith('pgc-ready='):
    deadline=time.monotonic()+a.ready_timeout
    while True:

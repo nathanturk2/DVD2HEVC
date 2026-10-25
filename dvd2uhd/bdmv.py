@@ -10,6 +10,25 @@ def section(b):
     return u32(len(b)) + b
 
 
+def vlc_clipinfo(data):
+    """Select the VLC compatibility profile for ordinary main-path clips.
+
+    VLC 3.0.23 takes playlist-info and ES locks in opposite orders when it
+    handles application type 1 during asynchronous TS stream registration.
+    Type 0 is reserved by Blu-ray, but accepted by libbluray and leaves VLC
+    in its existing normal-video mode without that redundant mode change.
+    This is deliberately a VLC profile, not hardware conformance metadata.
+    Never demote a slideshow/subpath or alter any timing/stream/index fields.
+    """
+    if len(data)<56 or data[:8] not in (b'HDMV0200',b'HDMV0300'):
+        raise ValueError('Invalid CLPI header')
+    size=int.from_bytes(data[40:44],'big')
+    if size<12 or 44+size>len(data):raise ValueError('Truncated CLPI ClipInfo')
+    if data[46]!=1 or data[47]!=1:return data
+    result=bytearray(data);result[47]=0
+    return bytes(result)
+
+
 def app_string(s):
     b = s.encode("ascii")
     return bytes([len(b)]) + b + (b"\0" if len(b) % 2 == 0 else b"")

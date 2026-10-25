@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- Avoid a confirmed stock VLC 3.0.23 playlist/stream-registration deadlock using
+  the VLC clip-info compatibility profile. Ordinary clips use reserved CLPI
+  application type 0; this deliberately prioritizes stock VLC over strict Blu-ray
+  metadata conformance. Preserve all media, timing, shared clips and DVD commands.
+  Support bounded metadata-only repairs with complete unchanged-byte verification.
+
 - Keep low-bitrate DVD menus responsive in stock VLC by bounding transport
   read-ahead for menu audio. Preserve the original compressed video/audio,
   commands, transitions and still timing; movie streams remain variable bitrate.

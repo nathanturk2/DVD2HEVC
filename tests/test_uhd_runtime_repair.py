@@ -67,6 +67,43 @@ class RuntimeRepairTests(unittest.TestCase):
         self.assertNotEqual(source.read_bytes(),candidate.read_bytes())
         self.assertEqual(candidate.stat().st_size,source.stat().st_size)
 
+    def test_clipinfo_only_repair_changes_two_bytes_and_keeps_the_jar_and_media(self):
+        source,candidate,original=self.fixture()
+        from dvd2uhd.udf_reader import UdfImage
+        from dvd2uhd.bdmv import vlc_clipinfo
+        clip=bytearray(b'HDMV0300'+b'\0'*52)
+        clip[40:44]=(16).to_bytes(4,'big');clip[46]=clip[47]=1
+        original_jar=UdfImage(source).read('BDMV/JAR/00000.jar')
+        files=UdfImage(source).files;data=bytearray(original)
+        for prefix,offset in [('',2048),('BACKUP/',4096)]:
+            name='BDMV/'+prefix+'CLIPINF/00000.clpi'
+            files[name]=dict(size=len(clip),extents=[(offset,20),(offset+100,len(clip)-20)])
+            data[offset:offset+20]=clip[:20];data[offset+100:offset+100+len(clip)-20]=clip[20:]
+        source.write_bytes(data)
+        result=patch_image(source,candidate,{},vlc_clipinfo=True)
+        fixed=candidate.read_bytes()
+        self.assertEqual([i for i,(a,b) in enumerate(zip(data,fixed)) if a!=b],[2175,4223])
+        self.assertEqual(source.read_bytes(),data)
+        self.assertEqual(UdfImage(candidate).read('BDMV/JAR/00000.jar'),original_jar)
+        self.assertTrue(result['media_bytes_identical'])
+        self.assertEqual(len(result['vlc_clipinfo']),2)
+        self.assertEqual(UdfImage(candidate).read('BDMV/CLIPINF/00000.clpi'),vlc_clipinfo(clip))
+        with self.assertRaisesRegex(ValueError,'No clip-info repair'):
+            patch_image(candidate,candidate.with_name('unnecessary.iso'),{},vlc_clipinfo=True)
+
+    def test_clipinfo_compatibility_retains_slideshow_subpath_and_index_data(self):
+        from dvd2uhd.bdmv import vlc_clipinfo
+        clip=bytearray(b'HDMV0300'+b'\0'*52)
+        clip[40:44]=(16).to_bytes(4,'big');clip[46]=clip[47]=1
+        fixed=vlc_clipinfo(clip)
+        self.assertEqual(fixed,clip[:47]+b'\0'+clip[48:])
+        self.assertEqual(vlc_clipinfo(fixed),fixed)
+        for stream,application in [(1,2),(1,3),(2,1)]:
+            clip[46]=stream;clip[47]=application
+            self.assertEqual(vlc_clipinfo(clip),clip)
+        for invalid in (b'not clip info',bytes(clip[:55]),b'HDMV0300'+b'\0'*32+b'\xff'*4+b'\0'*16):
+            with self.assertRaises(ValueError):vlc_clipinfo(invalid)
+
     def test_candidate_corruption_and_source_changes_never_pass(self):
         for modify_source in (False,True):
             source,candidate,original=self.fixture();changed=False

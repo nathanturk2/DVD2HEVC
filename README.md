@@ -86,6 +86,14 @@ pictures or audio or changing the original transitions. Noninteractive titles
 retain their normal variable bitrate. Low-bitrate menus become logically larger;
 the padding is highly compressible on filesystems with transparent compression.
 
+The current VLC-targeted output uses reserved CLPI application type `0` for
+ordinary main-path video clips. Stock VLC/libbluray accepts this value and keeps
+normal video playback, avoiding a VLC 3.0.23 playlist/stream lock inversion that
+can freeze feature selection or clip changes. This is an intentional departure
+from standard Blu-ray metadata, not a claim of hardware-player conformance.
+Slideshow types, media bytes, seek indexes, timestamps and DVD navigation are
+retained. Existing images can receive this metadata-only repair without remuxing.
+
 For a desktop shortcut:
 
 ```powershell

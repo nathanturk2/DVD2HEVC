@@ -402,6 +402,7 @@ def install_mux(folder,index,output,tsmuxer,subtitle_languages,audio_inputs=None
         if sub=='STREAM' and not keep_intermediates and os.stat(original).st_dev==os.stat(target.parent).st_dev:
             os.replace(original,temporary)
         else:shutil.copyfile(original,temporary)
+        if sub=='CLIPINF':temporary.write_bytes(bdmv.vlc_clipinfo(temporary.read_bytes()))
         os.replace(temporary,target)
         if sub=="CLIPINF":
             backup=output/"BDMV/BACKUP"/sub/target.name
@@ -447,7 +448,7 @@ def author(source,output,*,tsmuxer=None,ffmpeg=None,ffprobe=None,bdj_api=None,ma
                     "Original subtitle artwork is BD-J graphics; native PGS channels carry selection/clear events only.",
                     "Source HEVC is kept at DVD resolution; this is not UHD hardware conformance certification.",
                     "DVD UOP masks cover BD-J keys and native audio/subtitle changes; native seeking and random/angle playback remain incomplete."],
-                runtime_model_version=6,graphics_version=4)
+                runtime_model_version=6,graphics_version=4,vlc_clipinfo_profile='normal-video-application-type-0')
     with Disc(source) as disc:
         graph=inspect(disc)
         issues=eligibility(graph)
