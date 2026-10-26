@@ -1,4 +1,27 @@
-# DVD2HEVC 0.2.0a3 development update, 25 October 2026
+# DVD2HEVC 0.2.0a3 development update, 26 October 2026
+
+- Restore stock VLC's small Previous/Next Chapter/Title controls for linear DVD
+  still galleries. Preserve the original PTT chapter order across chooser,
+  automatic and manual PGCs, with DVD-VM state updated by native chapter seeks.
+  Unmarked holds keep VLC from counting the next chapter while displaying the
+  preceding picture. Clips are reused; no duplicate movie media is created.
+  Wait for a newly opened gallery locator's requested item before adopting native
+  chapter changes, so stale registers cannot undo a DVD menu selection.
+- Reopen the gallery player at an explicit play item when stepping. Two distinct
+  reconstructed pictures in a very short DVD still receive a lossless final-frame
+  hold, preserving the source pair in order rather than looping an animation.
+  Every output frame is decoded and checked; original audio is copied once.
+  This changes the still's compressed video encoding, not its decoded pixels.
+  Ordinary movie video remains stream copy. FFmpeg needs the libx265 encoder.
+- Walter Mitty's gallery was compared with the source DVD controls. Native
+  forward/backward stepping, direct chapter selection and end-of-gallery return
+  were exercised in stock VLC with hardware decoding and native audio. A scan of
+  the 117-disc review library found the same eligible structure in I, Robot.
+  Shared/nonlinear PGC chapter maps retain the existing DVD-VM path. Native VLC
+  time/duration describe the authored playlist, which can span multiple DVD PGCs.
+- The automated suite runs 321 tests: 320 pass, with one optional source-disc
+  test skipped. This includes a real lossless still/audio check and Java tests
+  for native gallery chapter synchronization and held-frame timing.
 
 - Hold repeated-picture DVD stills natively instead of repeatedly seeking a
   short silent tail. Voyager Season 4 Disc 1's language screen could blank,

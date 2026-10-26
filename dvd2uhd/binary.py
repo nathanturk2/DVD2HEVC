@@ -53,7 +53,7 @@ class Writer:
 def model(graph, target):
     w = Writer()
     w.i(0x4456444A)
-    w.i(6)
+    w.i(7)
     w.i(len(graph["pgcs"]))
     for p in graph["pgcs"]:
         w.text(p["key"])
@@ -88,6 +88,7 @@ def model(graph, target):
             repeated=c.get('still_repeated',False)
             w.f.write(bytes([(1 if repeated else 0)|(2 if repeated and c.get('still_keepalive',False) else 0)]))
             w.boolean(c.get('native_subtitle_controls',False))
+            w.i(c.get('native_item',-1))
     w.i(len(graph["titles"]))
     for t in graph["titles"]:
         for n in ("number", "vts", "vts_title"):

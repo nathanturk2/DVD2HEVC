@@ -1,3 +1,3 @@
 """DVD2HEVC application package."""
 
-__version__ = "0.2.0a3.dev20261026+vlcclipinfo"
+__version__ = "0.2.0a3.dev20261026+gallerychapters2"

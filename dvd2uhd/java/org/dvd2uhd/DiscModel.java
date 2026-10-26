@@ -9,6 +9,7 @@ import java.util.zip.InflaterInputStream;
 public final class DiscModel {
     public static final class Cell {
         public int flags,still,command,playlist;
+        public int nativeItem=-1;
         public long duration,start,end,presentation;
         public boolean repeated,keepalive,nativeSubtitles;
         public String graphics;
@@ -49,7 +50,7 @@ public final class DiscModel {
         DataInputStream d=new DataInputStream(new BufferedInputStream(source));
         try {
             if(d.readInt()!=0x4456444a)throw new IOException("Unsupported DVDJ model");
-            int version=d.readInt();if(version<3 || version>6)throw new IOException("Unsupported DVDJ model version");
+            int version=d.readInt();if(version<3 || version>7)throw new IOException("Unsupported DVDJ model version");
             int n=count(d,30000);
             for(int i=0;i<n;i++) {
                 Pgc p=new Pgc();
@@ -69,6 +70,7 @@ public final class DiscModel {
                     if((repeat&~3)!=0)throw new IOException("Unknown still flags");
                     c.repeated=(repeat&1)!=0;c.keepalive=(repeat&2)!=0;
                     c.nativeSubtitles=version>=6 && d.readBoolean();
+                    if(version>=7)c.nativeItem=d.readInt();
                     p.cells[j]=c;
                 }
                 pgcs.put(p.key,p);

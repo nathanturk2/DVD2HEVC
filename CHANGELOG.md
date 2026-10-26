@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+- Expose the original PTT chapter list for linear DVD still galleries in stock
+  VLC, including galleries spanning a chooser and automatic/manual PGCs. Restore
+  VLC's small Previous/Next Chapter controls, one-picture stepping, and native
+  chapter selection without skipping a picture at a held-frame boundary.
+- Hold the final decoded picture of a two-picture DVD still losslessly when its
+  source reconstructions differ. Preserve both original decoded pictures in order,
+  check every added frame, and copy audio once. Ordinary movie video remains
+  stream copy. Never loop two different pictures into a new animation.
+
 - Avoid a confirmed stock VLC 3.0.23 playlist/stream-registration deadlock using
   the VLC clip-info compatibility profile. Ordinary clips use reserved CLPI
   application type 0; this deliberately prioritizes stock VLC over strict Blu-ray

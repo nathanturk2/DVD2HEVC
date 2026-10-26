@@ -151,10 +151,11 @@ def probe_media(path,ffprobe):
     return json.loads(result.stdout),diagnostics
 
 
-def decoded_frame_hashes(path,ffmpeg,log):
+def decoded_frame_hashes(path,ffmpeg,log,limit=3):
     """Read frame records from stdout only; retain decoder diagnostics separately."""
+    if type(limit)!=int or not 1<=limit<=10000000:raise ValueError('Invalid decoded frame probe limit')
     result=subprocess.run([str(ffmpeg),'-nostdin','-v','error',*input_options(path),'-i',str(path),
-                           '-map','0:v:0','-frames:v','3','-f','framemd5','-'],
+                           '-map','0:v:0','-frames:v',str(limit),'-f','framemd5','-'],
                           capture_output=True,timeout=300,
                           creationflags=subprocess.CREATE_NO_WINDOW if os.name=='nt' else 0)
     diagnostics=result.stderr.decode('utf-8','replace')
@@ -190,6 +191,28 @@ def still_silent_tail_ms(probe,native_times):
     return max(0,round((native_times[1]-native_times[0])/45-max(ends,default=0)))
 
 
+def freeze_final_picture(source,output,ffmpeg,seconds,fps,hashes,logs):
+    """Retain a short DVD presentation, then hold its last decoded picture.
+
+    Two different source pictures must never be looped as an animation. Only
+    this small still is encoded losslessly; ordinary video remains stream copy.
+    Audio is copied once, and every output picture is independently checked.
+    """
+    if not 0<len(hashes)<=2 or seconds<=0:raise ValueError('Expected a bounded DVD still')
+    logs=Path(logs)
+    run([ffmpeg,'-nostdin','-hide_banner','-loglevel','warning','-y',
+         '-i',source,'-map','0:v:0','-map','0:a?',
+         '-vf',f'tpad=stop_mode=clone:stop_duration={seconds}',
+         '-t',str(seconds),'-c:v','libx265','-preset','ultrafast',
+         '-x265-params','lossless=1:log-level=error:bframes=0:rc-lookahead=0',
+         '-c:a','copy',output],logs/'still.log')
+    expected=round(seconds*fps)
+    frozen=decoded_frame_hashes(output,ffmpeg,logs/'still-lossless-verification.log',expected+2)
+    if abs(len(frozen)-expected)>1 or frozen[:len(hashes)]!=hashes or len(frozen)<=len(hashes) or any(h!=hashes[-1] for h in frozen[len(hashes):]):
+        raise FormatError('Lossless DVD still extension changed decoded pictures')
+    return dict(source_pictures=hashes,final_picture=hashes[-1],output_pictures=len(frozen))
+
+
 def mux_cell(folder,index,output,ffmpeg,ffprobe,tsmuxer,duration_ticks=0,infinite_still=False,sequence_end=True,languages=None,still_seconds=0,subtitles=None,audio_recovery=None,keep_intermediates=False,interactive=False):
     src=folder/"source.vob"
     probe,diagnostics=probe_media(src,ffprobe)
@@ -216,29 +239,38 @@ def mux_cell(folder,index,output,ffmpeg,ffprobe,tsmuxer,duration_ticks=0,infinit
             cmd.extend([f"-c:a:{i}","pcm_s16le" if s["codec_name"]=="pcm_dvd" else "ac3"])
     cmd.append(folder/"media.mkv")
     run(cmd,folder/"ffmpeg.log")
-    padded=False;short_presentation_ms=0
+    padded=False;short_presentation_ms=0;lossless_still=None
     if video['codec_name']=='hevc':
-        # DVD still cells can have only two identical compressed pictures. Their
+        # DVD still cells can have only one or two decoded pictures. Their
         # audio can make the VOB large, so file size cannot identify a still.
         # BD-J EOF can tear down the decoder before a short clip is presented.
-        # Repeat the same independently decodable picture, with no re-encoding.
+        # Identical pictures can be repeated as compressed data; distinct
+        # pictures need a verified lossless hold of the final decoded picture.
         hashes=decoded_frame_hashes(folder/'media.mkv',ffmpeg,folder/'still-probe-diagnostics.log')
-        if 0<len(hashes)<=2 and len(set(hashes))==1:
+        short=len(hashes)*b/a
+        held=infinite_still or still_seconds>0 or duration_ticks/90000>short+1
+        if 0<len(hashes)<=2 and (len(set(hashes))==1 or held):
             short_presentation_ms=round(len(hashes)*1000*b/a)
             audio_end=max((float(s.get('duration',0))+float(s.get('start_time',0))-float(video.get('start_time',0)) for s in audio),default=0)
             # A bounded silent video tail can loop for any DVD still wait.
             # Still wait duration belongs to the VM, not to the repeated asset.
             pad_seconds=still_padding_seconds(duration_ticks,still_seconds,infinite_still,audio_end)
-            padding=[ffmpeg,"-nostdin","-hide_banner","-loglevel","warning","-y",
+            if len(set(hashes))>1:
+                # A DVD still can contain two DIFFERENT reconstructed pictures.
+                # Looping that GOP would animate them forever. Extend its FINAL
+                # picture losslessly instead, retaining the original two decoded
+                # pictures in order and verifying every added frame exactly.
+                lossless_still=freeze_final_picture(folder/'media.mkv',folder/'still.mkv',ffmpeg,pad_seconds,a/b,hashes,folder)
+            else:
+                padding=[ffmpeg,"-nostdin","-hide_banner","-loglevel","warning","-y",
                      "-stream_loop","-1",'-t',str(pad_seconds),
                      "-i",folder/"media.mkv"]
-            # A static DVD menu may have minutes of audio and only two video
-            # frames. Repeat video alone; retain audio once, in canonical order.
-            if audio:padding.extend(['-i',folder/'media.mkv'])
-            padding.extend(['-map','0:v:0'])
-            if audio:padding.extend(['-map','1:a'])
-            padding.extend(['-c','copy',folder/'still.mkv'])
-            run(padding,folder/'still.log')
+                # Repeat video alone; retain source audio once.
+                if audio:padding.extend(['-i',folder/'media.mkv'])
+                padding.extend(['-map','0:v:0'])
+                if audio:padding.extend(['-map','1:a'])
+                padding.extend(['-c','copy',folder/'still.mkv'])
+                run(padding,folder/'still.log')
             os.replace(folder/"still.mkv",folder/"media.mkv");padded=True
     mux_input=folder/'media.mkv'
     if padded or sequence_end and video['codec_name']=='hevc':
@@ -356,6 +388,7 @@ def mux_cell(folder,index,output,ffmpeg,ffprobe,tsmuxer,duration_ticks=0,infinit
                          playlist_times=bdmv.playlist_times(data),still_repeated=padded,sequence_end=separate,
                          still_silent_tail_ms=still_silent_tail_ms(probe,bdmv.playlist_times(data)) if padded else 0,
                          sequence_end_version='eos-only' if separate else None,
+                         lossless_still=lossless_still,
                          short_presentation_ms=short_presentation_ms,menu_transport_min_kbps=menu_rate)
 
 
@@ -448,7 +481,7 @@ def author(source,output,*,tsmuxer=None,ffmpeg=None,ffprobe=None,bdj_api=None,ma
                     "Original subtitle artwork is BD-J graphics; native PGS channels carry selection/clear events only.",
                     "Source HEVC is kept at DVD resolution; this is not UHD hardware conformance certification.",
                     "DVD UOP masks cover BD-J keys and native audio/subtitle changes; native seeking and random/angle playback remain incomplete."],
-                runtime_model_version=6,graphics_version=4,vlc_clipinfo_profile='normal-video-application-type-0')
+                runtime_model_version=7,graphics_version=4,vlc_clipinfo_profile='normal-video-application-type-0')
     with Disc(source) as disc:
         graph=inspect(disc)
         issues=eligibility(graph)
@@ -510,6 +543,8 @@ def author(source,output,*,tsmuxer=None,ffmpeg=None,ffprobe=None,bdj_api=None,ma
             bdmv.join_titles(output,graph,report)
             report['native_still_playlists']=bdmv.hold_native_stills(output,graph)
             report['extended_audio_presentations']=bdmv.extend_audio_presentations(output,graph)
+            from .gallery import install as install_galleries
+            install_galleries(output,graph,report)
             binary.model(graph,resources/"disc.bin")
             (output/"navigation.json").write_text(json.dumps(graph,indent=2),encoding="utf-8")
             bdmv.bootstrap(output,template)

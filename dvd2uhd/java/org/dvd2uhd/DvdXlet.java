@@ -38,6 +38,7 @@ public final class DvdXlet extends HComponent implements Xlet, UserEventListener
     private int pointerX=Integer.MIN_VALUE,pointerY=Integer.MIN_VALUE;
     private long forcedActivated=Long.MIN_VALUE;
     private int loadedPlaylist=-1,loadedCell=0;
+    private boolean galleryPositionReady;
     private int lastNativeAudio=-1;
     private int lastDvdSubtitle=-1,lastNativeSubtitle=-1;
     private boolean lastNativeSubtitleOn;
@@ -133,6 +134,7 @@ public final class DvdXlet extends HComponent implements Xlet, UserEventListener
         // DVD still video can contain one coded frame with a longer IFO presentation.
         if(ended && endWall>=0)t=Math.max(t,endMedia+clock.millis()-endWall);
         long duration=c==null?0:(c.end>c.start?c.end-c.start:c.presentation);
+        if(c!=null && c.nativeItem>=0)duration=c.presentation;
         return duration>0?Math.min(t,Math.max(duration,endMedia)):t;
     }
     // libbluray's JMF getMediaTime() advances even when its rate is zero;
@@ -154,10 +156,11 @@ public final class DvdXlet extends HComponent implements Xlet, UserEventListener
     }
     private boolean advancePresentation(DiscModel.Cell c,long absolute,long t,long now) {
         if(ended || clock.paused())return false;
-        if(continuesPlaylist(c) && absolute>=c.end) {
+        boolean dvdStill=c.still!=0 || (nav.cell==nav.pgc.cells.length && nav.pgc.still!=0);
+        if(!dvdStill && (continuesPlaylist(c) || c.nativeItem>=0) && absolute>=c.end) {
             nav.endCell();return true;
         }
-        if(c.end==0 && timedPresentation(c) && c.presentation>0 && t>=c.presentation)
+        if((c.end==0 || c.nativeItem>=0) && timedPresentation(c) && c.presentation>0 && t>=c.presentation)
             presentationEnded(c,now);
         return false;
     }
@@ -235,7 +238,7 @@ public final class DvdXlet extends HComponent implements Xlet, UserEventListener
         // otherwise the old title's timeline can overwrite the new playlist.
         if(!selectService(service))return false;
         boolean same=reusablePlayer(c);
-        boolean continuation=same && nav.continuation && loadedCell+1==nav.cell && position()>=c.start-100;
+        boolean continuation=same && c.nativeItem<0 && nav.continuation && loadedCell+1==nav.cell && position()>=c.start-100;
         boolean consecutive=c!=null && nav.continuation && loadedPgc.equals(nav.pgc.key) && loadedCell+1==nav.cell;
         long boundary=consecutive?(same?c.start-loadedStart:loadedDuration):0;
         if(!same && player!=null) {player.removeControllerListener(this);player.close();player=null;}
@@ -243,16 +246,19 @@ public final class DvdXlet extends HComponent implements Xlet, UserEventListener
         if(c==null) {graphics=null;log("STOP");return true;}
         if(c.playlist<0) throw new IOException("DVD cell was not authored: "+nav.pgc.key+":"+nav.cell);
         graphics=new DiscModel.Graphics(getClass().getResourceAsStream("/"+c.graphics));
+        if(c.nativeItem>=0)log("GALLERY item="+c.nativeItem+" graphics="+c.graphics+" start="+c.start+" end="+c.end);
         subtitles.enter(graphics,boundary,consecutive);
         loadedStart=c.start;loadedDuration=c.end>c.start?c.end-c.start:c.duration;
         if(same) {
             if(!continuation && !nav.mediaSynchronized)player.setMediaTime(new Time((c.start+nav.resumeMillis)/1000.0));
-            nav.resumeMillis=0;loadedCell=nav.cell;
+            nav.resumeMillis=0;loadedCell=nav.cell;loadedPgc=nav.pgc.key;
             log((nav.mediaSynchronized?"SYNC ":continuation?"CONTINUE ":"SEEK ")+nav.pgc.key+" cell="+nav.cell+" playlist="+c.playlist);
             if(!nav.mediaSynchronized && !continuation && !lifecyclePaused)player.start();
             audio();subtitleControl();repaint();return true;
         }
         BDLocator locator=new BDLocator(null,1,c.playlist);
+        galleryPositionReady=false;
+        if(c.nativeItem>=0)locator.setPlayItemId(c.nativeItem);
         log("PLAY "+nav.pgc.key+" cell="+nav.cell+" playlist="+c.playlist);
         player=Manager.createPlayer(new MediaLocator(locator.toExternalForm()));
         player.realize();
@@ -260,7 +266,9 @@ public final class DvdXlet extends HComponent implements Xlet, UserEventListener
         while(player.getState()<Controller.Realized && System.currentTimeMillis()<deadline)Thread.sleep(20);
         if(player.getState()<Controller.Realized)throw new IOException("BD-J player realization timed out");
         player.addControllerListener(this);
-        if(c.start+nav.resumeMillis>0) {player.setMediaTime(new Time((c.start+nav.resumeMillis)/1000.0));nav.resumeMillis=0;}
+        if((c.nativeItem<0 && c.start+nav.resumeMillis>0) || (c.nativeItem>=0 && nav.resumeMillis>0))
+            player.setMediaTime(new Time((c.start+nav.resumeMillis)/1000.0));
+        nav.resumeMillis=0;
         loadedPlaylist=c.playlist;loadedPgc=nav.pgc.key;loadedCell=nav.cell;
         audio();subtitleControl();
         if(!lifecyclePaused)player.start();
@@ -270,8 +278,21 @@ public final class DvdXlet extends HComponent implements Xlet, UserEventListener
         // VLC has drained and torn down an EOF player's native input. A DVD
         // cell command can loop back to the very same playlist; reopen it
         // rather than seeking an exhausted player into a blank video output.
-        return c!=null && player!=null && loadedPlaylist==c.playlist && loadedPgc.equals(nav.pgc.key) &&
+        // A gallery chapter seek must also reset the previous still's decoder.
+        return c!=null && c.nativeItem<0 && player!=null && loadedPlaylist==c.playlist && loadedPgc.equals(nav.pgc.key) &&
                !(ended && player.getState()!=Controller.Started);
+    }
+    private boolean synchronizeGallery(int playlist,int item,long millis) {
+        DiscModel.Cell c=nav.currentCell();
+        if(playlist!=loadedPlaylist)return false;
+        // Native registers still describe the previous player while the new
+        // locator is opening. First observe the requested item before treating
+        // a different item as a user chapter seek.
+        if(!galleryPositionReady) {
+            if(item!=c.nativeItem)return false;
+            galleryPositionReady=true;
+        }
+        return nav.synchronizeGallery(playlist,item,millis);
     }
     private void audio() throws Exception {
         if(player==null || nav.pgc==null) return;
@@ -373,10 +394,16 @@ public final class DvdXlet extends HComponent implements Xlet, UserEventListener
                             long absolute=position();
                             DiscModel.Cell present=nav.currentCell();
                             boolean seek=previousPosition>=0 && Math.abs(absolute-previousPosition)>1500;
+                            boolean held=present.still!=0 || (nav.cell==nav.pgc.cells.length && nav.pgc.still!=0);
+                            if(present.nativeItem>=0 && (held || seek)) {
+                                RegisterAccess registers=RegisterAccess.getInstance();
+                                if(synchronizeGallery(registers.getPSR(RegisterAccess.PSR_PLAYLIST_ID),
+                                   registers.getPSR(RegisterAccess.PSR_PLAYITEM_ID),absolute))continue;
+                            }
                             if(seek){log("POSITION discontinuity="+absolute);subtitles.discardCarry();}
                             // Ordinary adjacent playback runs the original cell-end path.
                             // Backward seeks and jumps over cells adopt the native position.
-                            if(present.end>present.start && (seek || absolute<present.start ||
+                            if(present.nativeItem<0 && present.end>present.start && (seek || absolute<present.start ||
                                 (nav.cell<nav.pgc.cells.length && absolute>=nav.pgc.cells[nav.cell].end))) {
                                 if(nav.synchronizeMedia(loadedPlaylist,absolute))continue;
                             }

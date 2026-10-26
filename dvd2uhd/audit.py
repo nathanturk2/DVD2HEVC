@@ -84,7 +84,8 @@ def audit(root,*,media=False,output=None,progress=None,bdj_api=None):
                     native_playlists[playlist]=primary_streams((root/'BDMV/PLAYLIST'/f'{playlist:05d}.mpls').read_bytes())
                 tables=native_playlists[playlist]
                 item=0
-                if len(tables)>1:
+                if d.get('native_item',-1)>=0:item=d['native_item']
+                elif len(tables)>1:
                     join=next(j for j in r['joined_title_playlists'] if j['playlist']==playlist)
                     item=join['cells'].index(c['number'])
                 if [s['language'] for s in tables[item]['subtitle']]!=[s['language'] for s in expected]:
@@ -118,18 +119,21 @@ def audit(root,*,media=False,output=None,progress=None,bdj_api=None):
             if ref!=cell-numbers[0] or stamp!=r['cells'][ids[ref]]['playlist_times'][0]:
                 raise ValueError('Joined chapter position changed')
         joined_count+=1
+    from .gallery import verify as verify_galleries
+    gallery_count=verify_galleries(root,g,r)
     classes=build_java(work/'audit-classes',bdj_api)
     graphics=run([discover('java'),'-Xmx64m','-cp',classes,'org.dvd2uhd.Trace','graphics',root/'BDMV/JAR/00000.jar']).strip()
     result=dict(schema='dvd2uhd-audit-v1',navigation_unchanged=True,physical_reuse_preserved=True,
                 pgcs=len(g['pgcs']),titles=len(g['titles']),physical_cells=len(cell_refs),missing=missing,
                 graphics=graphics,media_scope='not-requested',media=[],playback_certified=False)
     result.update(joined_playlists_verified=joined_count,navigation_sha256=sha256(root/'navigation.json'),
+                  native_gallery_playlists_verified=gallery_count,
                   xlet_sha256=sha256(root/'BDMV/JAR/00000.jar'),
                   native_subtitle_playlists_verified=len(native_playlists))
     if media:
         from .boundary_audio import successors
         allowed_successors=successors(g,r['cells'])
-        result['media_scope']='all-authored-cells-compressed-hevc-audio-payloads-slot-order-and-av-start-offsets'
+        result['media_scope']='all-authored-cells-compressed-hevc-or-lossless-decoded-stills-audio-slot-order-and-av-start-offsets'
         for row in r['cells']:
             i=row['index'];src=work/f'cell-{i:05d}/source.vob';dst=root/f'BDMV/STREAM/{i:05d}.m2ts'
             print(f'Audit cell {i+1}/{len(r["cells"])}',flush=True)
@@ -142,7 +146,15 @@ def audit(root,*,media=False,output=None,progress=None,bdj_api=None):
             if any(c.get('audio_streams')!=row['audio_streams'] for c in refs) or set(audio)!=set(row['audio_streams']):raise ValueError('Audio slot identity/order changed')
             if row['video_codec']!='hevc':raise ValueError('MPEG-2 compressed-picture audit is not implemented')
             a=vcl_hashes(src,r['tools']['ffmpeg']);b=vcl_hashes(dst,r['tools']['ffmpeg'])
-            equal=picture_payload_matches(a,b,bool(row.get('still_repeated')))
+            lossless=row.get('lossless_still')
+            if lossless:
+                from .author import decoded_frame_hashes
+                original_frames=decoded_frame_hashes(src,r['tools']['ffmpeg'],work/f'lossless-source-{i}.log')
+                output_frames=decoded_frame_hashes(dst,r['tools']['ffmpeg'],work/f'lossless-output-{i}.log',lossless['output_pictures']+1)
+                equal=(original_frames==lossless['source_pictures'] and 0<len(original_frames)<=2 and
+                       len(output_frames)==lossless['output_pictures'] and output_frames[:len(original_frames)]==original_frames and
+                       all(h==original_frames[-1] for h in output_frames[len(original_frames):]))
+            else:equal=picture_payload_matches(a,b,bool(row.get('still_repeated')))
             if not equal:raise ValueError(f'HEVC picture payload changed in clip {i}')
             dst_probe,output_diagnostics=probe_media(dst,r['tools']['ffprobe'])
             dst_audio=[s for s in dst_probe['streams'] if s['codec_type']=='audio']
@@ -197,6 +209,8 @@ def audit(root,*,media=False,output=None,progress=None,bdj_api=None):
                 if recovery:evidence['scope']='complete-access-units-with-source-boundary-reconstruction-and-av-start-offset'
                 checked_audio.append(evidence)
             result['media'].append(dict(clip=i,original_picture_nals=len(a),authored_picture_nals=len(b),
+                                       picture_scope='decoded-lossless-final-picture-hold' if lossless else 'compressed-picture-payload',
+                                       lossless_still=lossless,
                                        still_repeated=bool(row.get('still_repeated')),audio_streams=audio,
                                        audio_payloads=checked_audio,probe_diagnostics=dict(source=source_diagnostics,authored=output_diagnostics),
                                        vcl_sha256=hashlib.sha256(''.join(a).encode()).hexdigest()))

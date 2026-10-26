@@ -20,8 +20,19 @@ leaving the movie running with its timeline hidden, and serializes asynchronous
 menu/movie service changes. Menu return retains the DVD resume position. See
 [release notes](docs/RELEASE_NOTES.md) for validation and remaining limits.
 Short still menus also retain VLC's live highlight output after the video ends,
-including Gladiator's audio setup and subtitle pages. This uses native Blu-ray
-still metadata and does not expand or reencode the original media.
+including Gladiator's audio setup and subtitle pages. Applying native Blu-ray
+still flags itself does not expand or reencode the original media.
+Manual still galleries now expose their original DVD chapter list to stock VLC,
+restoring its small **Previous/Next Chapter/Title** buttons beside the disc-menu
+button. Those controls step through gallery pictures; the main playlist Next
+button has a different purpose. Linear galleries spanning several PGCs retain
+their chooser and automatic/manual chapter numbering. Shared or nonlinear PGC
+chapter maps continue through the existing DVD VM path.
+Some DVD stills contain two different decoded pictures. When a longer hold is
+needed, the converter retains those two pictures in order and losslessly repeats
+the final picture, checking every output frame and copying audio once. This
+requires FFmpeg with `libx265`; it changes the small still's compressed encoding,
+while preserving its decoded pixels. Movie video continues to use stream copy.
 Repeated-picture stills now use the same native hold, avoiding video-output
 restarts while navigating Voyager's language screen. Mouse and directional
 navigation can alternate; stationary-pointer refreshes do not undo key input.

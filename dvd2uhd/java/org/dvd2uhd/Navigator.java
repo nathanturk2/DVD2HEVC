@@ -130,6 +130,27 @@ public final class Navigator {
         }
         return false;
     }
+    /** Native gallery chapters are the original title's PTTs, across PGCs.
+     * Explicit seeks bypass pre/cell/post commands, like dvdnav_part_play().
+     */
+    public boolean synchronizeGallery(int playlist,int item,long millis) {
+        if(stopped || pgc==null || !pgc.title || currentCell().nativeItem<0 || currentCell().playlist!=playlist)return false;
+        DiscModel.Title title=title(vm.sprm[4]);
+        for(int number:title.pgc) {
+            DiscModel.Pgc target=find("T:"+title.vts+":"+number);
+            for(int i=0;i<target.cells.length;i++) {
+                DiscModel.Cell c=target.cells[i];
+                boolean guard=c.nativeItem>=0 && item==c.nativeItem+1 &&
+                    (c.still!=0 || (i==target.cells.length-1 && target.still!=0));
+                if(c.nativeItem!=item && !guard)continue;
+                if(pgc==target && cell==i+1)return false;
+                transitions=0;pgc=target;vm.titleDomain(true);vm.sprm[6]=target.number();
+                playCell(i+1);currentMillis=Math.max(0,millis-c.start);mediaSynchronized=true;
+                return true;
+            }
+        }
+        return false;
+    }
     public void tick() {
         if(stopped)return;
         int target=vm.navigationTimerTarget();

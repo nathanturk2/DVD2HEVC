@@ -10,7 +10,7 @@ p=argparse.ArgumentParser(description=__doc__)
 p.add_argument('vlc_root',type=Path);p.add_argument('disc',type=Path)
 p.add_argument('--media-scheme',choices=('bluray','dvd'),default='bluray',help='Use dvd with the private player for original-source comparisons')
 p.add_argument('--output',type=Path,default=Path('work/libvlc-capture'))
-p.add_argument('--actions',default='down,activate',help='Comma separated navigation, menu-ready, pgc-ready=key, subtitles-ready=count, seek=ms, wait=seconds, pause, play, audio=index, subtitle=index/none, chapter=index, title=index, menu (popup), top-menu (native title 0) actions')
+p.add_argument('--actions',default='down,activate',help='Comma separated navigation, menu-ready, pgc-ready=key, subtitles-ready=count, seek=ms, wait=seconds, pause, play, audio=index, subtitle=index/none, chapter=index, next-chapter, previous-chapter, title=index, menu (popup), top-menu (native title 0) actions')
 p.add_argument('--java-home',type=Path)
 p.add_argument('--seek-ms',type=int,help='Seek after navigation actions, for cell transition tests')
 p.add_argument('--wait',type=float,default=3,help='Initial wait in seconds')
@@ -271,6 +271,8 @@ try:
    if not 0<=ordinal<len(tracks):raise ValueError('Audio ordinal unavailable')
    api('libvlc_audio_set_track',C.c_int,[ptr,C.c_int])(mp,tracks[ordinal]['id'])
   elif action.startswith('chapter='):api('libvlc_media_player_set_chapter',None,[ptr,C.c_int])(mp,int(action[8:]))
+  elif action in ('next-chapter','previous-chapter'):
+   api('libvlc_media_player_'+('next' if action=='next-chapter' else 'previous')+'_chapter',None,[ptr])(mp)
   elif action=='top-menu':api('libvlc_media_player_set_title',None,[ptr,C.c_int])(mp,0)
   elif action.startswith('title='):api('libvlc_media_player_set_title',None,[ptr,C.c_int])(mp,int(action[6:]))
   elif action.startswith('subtitle='):
